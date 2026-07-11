@@ -355,7 +355,8 @@ if not any(x.get("name") == WORKSPACE_NAME for x in WORKSPACES):
 # ---- authorization (review P0.1): viewers are read-only; mutations need MONITOR_ADMINS.
 # The Apps proxy injects the authenticated user's identity in X-Forwarded-* headers.
 MONITOR_ADMINS = {
-    e.strip().lower() for e in os.environ.get("MONITOR_ADMINS", "").split(",")
+    e.strip().lower()
+    for e in os.environ.get("MONITOR_ADMINS", "").split(",")
     if e.strip() and e.strip().lower() != "unset"
 }
 

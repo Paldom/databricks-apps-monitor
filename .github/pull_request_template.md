@@ -5,6 +5,7 @@
 ## Linked issue
 
 <!-- Required for non-trivial changes. -->
+
 Closes #
 
 ## Checklist

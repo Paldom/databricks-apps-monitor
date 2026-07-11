@@ -1,14 +1,21 @@
 # <img src="app/static/icon.svg" alt="pulse icon" width="34" align="top"> databricks-apps-monitor
 
 **Apps Monitor — fleet health, cost, usage, and code risk for every Databricks App you run, in one place.**
-It answers the questions you actually ask: *Is it up? Is it slow? What failed? What does it
-cost — per app, per team, per user? Is the code production-ready?*
+It answers the questions you actually ask: _Is it up? Is it slow? What failed? What does it
+cost — per app, per team, per user? Is the code production-ready?_
 
 [![CI](https://github.com/Paldom/databricks-apps-monitor/actions/workflows/ci.yml/badge.svg)](https://github.com/Paldom/databricks-apps-monitor/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE) ![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)
 
-> 🎬 **[Watch the one-minute product tour](apps-monitor-tour.mp4)** — every screen on live
-> data: fleet board, cost ranking, dependency topology, alerts, governance rules, and a full
-> drill-down into one app (errors → traces → code & security → cost → operations).
+<!-- GitHub renders inline video players only for web-editor uploads (user-attachments).
+     For a true inline player: edit this README on github.com, drag apps-monitor-tour.mp4
+     into the editor, and replace the link below with the generated URL. Until then the
+     GIF preview autoplays and links to the full-quality mp4. -->
+
+[![One-minute product tour — every screen on live data](docs/tour-preview.gif)](apps-monitor-tour.mp4)
+
+> 🎬 **[Full-quality tour (mp4, 60 s)](apps-monitor-tour.mp4)** — fleet board, cost ranking,
+> dependency topology, alerts, governance rules, and a full drill-down into one app
+> (errors → traces → code & security → cost → operations).
 
 Think Azure Application Insights, rebuilt on Databricks primitives — **nothing to host, no
 collector, no vendor**. Apps ship OpenTelemetry through the platform into Unity Catalog;
@@ -111,12 +118,12 @@ binding — that's what unlocks the unified waterfalls below. Optional: a synthe
 
 ## Who it's for
 
-| Persona | The question | Where they live |
-| --- | --- | --- |
-| **Tech lead / eng manager** | "Is my fleet OK — would I sign off this app?" | Dashboard, per-app scorecard, review verdicts |
-| **Platform / ops** | "What needs me now, what can I automate?" | Alert center, anomaly + drift alerts, auto-stop policies |
-| **Developer / support** | "Why did it 500 at 14:32, what did that request do?" | Error groups → trace waterfall → correlated logs |
-| **FinOps / governance** | "Who spends what, is anything out of policy?" | Chargeback, budgets, compliance matrix, Genie Q&A |
+| Persona                     | The question                                         | Where they live                                          |
+| --------------------------- | ---------------------------------------------------- | -------------------------------------------------------- |
+| **Tech lead / eng manager** | "Is my fleet OK — would I sign off this app?"        | Dashboard, per-app scorecard, review verdicts            |
+| **Platform / ops**          | "What needs me now, what can I automate?"            | Alert center, anomaly + drift alerts, auto-stop policies |
+| **Developer / support**     | "Why did it 500 at 14:32, what did that request do?" | Error groups → trace waterfall → correlated logs         |
+| **FinOps / governance**     | "Who spends what, is anything out of policy?"        | Chargeback, budgets, compliance matrix, Genie Q&A        |
 
 The UI mirrors these journeys: a fleet **Dashboard** (Overview · Catalog · Topology ·
 Governance · Ask Genie) and a per-app **Inspect** view (scorecard → Investigate / Assess /
@@ -124,24 +131,38 @@ Operate).
 
 ## How it works
 
-```
-                      fleet apps (any Databricks App)
-                      ├─ opentelemetry-instrument + golden-envelope middleware
-                      └─ telemetry_export_destinations ──────────────┐ (platform sidecar,
-                                                                     ▼  OTLP → Zerobus)
-   ┌──────────────────────┐   SQL (on demand)   ┌─────────────────────────────────────┐
-   │ apps-monitor (FastAPI)│◄───────────────────┤ UC: <catalog>.monitor                │
-   │  live board · pages:  │                    │  otel_logs / otel_spans / otel_metrics│
-   │  requests · errors ·  │  probes (SP OAuth) │  apps_inventory · code_scans ·        │
-   │  logs · traces · cost │───► fleet URLs     │  scan_findings · llm_reviews ·        │
-   │  security · reviews   │                    │  costs_daily · views (v_*)           │
-   └──────────▲───────────┘                    └───────────▲─────────────────────────┘
-              │ trigger (CAN_MANAGE_RUN)                    │ write (run as deployer)
-   ┌──────────┴────────────────────────────────────────────┴───────────┐
-   │ serverless jobs: monitor-inventory-scan (hourly) · llm-review ·     │
-   │ synthetics · cost-rollup  — read Apps API, workspace files, FMAPI, │
-   │ system.billing / system.ai_gateway / system.access / system.lakeflow│
-   └────────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart LR
+    classDef app fill:#FFEFEC,stroke:#FF3621,stroke-width:1.5px,color:#1B3139
+    classDef uc fill:#E6F0F8,stroke:#2272B4,stroke-width:1.5px,color:#1B3139
+    classDef job fill:#F0EBFE,stroke:#6B5BD2,stroke-width:1.5px,color:#1B3139
+    classDef ext fill:#F4F4F5,stroke:#A1A1AA,color:#52525B
+    classDef mon fill:#E6F7EF,stroke:#00A972,stroke-width:2px,color:#1B3139
+
+    subgraph FLEET["Fleet — any Databricks App"]
+        A["apps<br/><i>opentelemetry-instrument<br/>+ golden-envelope middleware</i>"]:::app
+    end
+
+    subgraph UC["Unity Catalog · &lt;catalog&gt;.monitor"]
+        T["otel_logs · otel_spans · otel_metrics"]:::uc
+        G["apps_inventory · code_scans · llm_reviews<br/>costs_daily · alert_events · gold views (v_*)"]:::uc
+    end
+
+    subgraph JOBS["Serverless jobs (hourly/daily)"]
+        J["inventory + scan · LLM review<br/>cost rollup · lifecycle · quality evals"]:::job
+    end
+
+    M["<b>apps-monitor</b> (FastAPI)<br/>fleet board · inspect · alerts · governance"]:::mon
+
+    SRC["Apps API · workspace files<br/>system tables · FMAPI"]:::ext
+
+    A -- "OTLP → platform sidecar<br/>(Zerobus, no collector)" --> T
+    M -- "probes /healthz + journeys<br/>(app SP OAuth, 60 s)" --> A
+    M -- "SQL on demand<br/>(serverless warehouse)" --> T
+    M -- SQL --> G
+    M -. "trigger (CAN_MANAGE_RUN)" .-> J
+    J -- "write (run as deployer)" --> G
+    SRC --> J
 ```
 
 Three design rules keep it cheap: **native pipeline over custom ingestion** (no collector —
@@ -156,13 +177,13 @@ bootstrapped by the inventory job itself — permissions table in
 
 Everything joins on a small, deliberate key set:
 
-| Key | Set by | Joins |
-| --- | --- | --- |
-| `service_name` (= app name) | platform exporter | every span/log/metric → its app |
-| `trace_id` | OTel SDK + W3C `traceparent` | request → spans → logs, across apps |
-| `app.client_request_id` | golden-envelope middleware | browser request → app spans → MLflow agent trace |
-| `session.id`, `user.id_hash` | middleware (cookie + hashed principal) | usage + per-user cost share, pseudonymous |
-| `gen_ai.usage.*`, `gen_ai.request.model` | the app's own LLM spans | tokens → app/request/session/user — **exact, not estimated** |
+| Key                                      | Set by                                 | Joins                                                        |
+| ---------------------------------------- | -------------------------------------- | ------------------------------------------------------------ |
+| `service_name` (= app name)              | platform exporter                      | every span/log/metric → its app                              |
+| `trace_id`                               | OTel SDK + W3C `traceparent`           | request → spans → logs, across apps                          |
+| `app.client_request_id`                  | golden-envelope middleware             | browser request → app spans → MLflow agent trace             |
+| `session.id`, `user.id_hash`             | middleware (cookie + hashed principal) | usage + per-user cost share, pseudonymous                    |
+| `gen_ai.usage.*`, `gen_ai.request.model` | the app's own LLM spans                | tokens → app/request/session/user — **exact, not estimated** |
 
 The FinOps punchline: token counts originate in the app's own telemetry, where the LLM
 call happens — so AI cost attribution needs no guesswork. The cost job lines this
@@ -174,7 +195,7 @@ read that single reconciled surface.
 
 With `MLFLOW_ENABLE_DUAL_EXPORT=true`, MLflow traces land **both** in the experiment
 (MLflow UI) and — as typed spans carrying `mlflow.spanType` / `mlflow.traceRequestId` — in
-`otel_spans`, inside the *same OTel trace* as the FastAPI request that triggered them. One
+`otel_spans`, inside the _same OTel trace_ as the FastAPI request that triggered them. One
 waterfall walks HTTP request → AGENT → TOOL → LLM spans — across apps when a tool calls
 another app — with token counts and correlated logs on every row, plus a deep link into
 the MLflow UI. Without the flag, the Apps-injected OTLP endpoint silently redirects MLflow
@@ -189,7 +210,7 @@ export away from the experiment; with it you get both worlds and one join key en
 
 Stopped apps still answer HTTP 200 (detection uses the Apps API, not status codes); the
 apps proxy intercepts `GET /healthz`; job-runtime tokens are rejected by app URLs (so
-probes run *inside* the monitor under its own service principal); MLflow trace content is
+probes run _inside_ the monitor under its own service principal); MLflow trace content is
 read via REST because app containers can't reach artifact storage. Full learnings:
 [docs/BUILDLOG.md](docs/BUILDLOG.md).
 
