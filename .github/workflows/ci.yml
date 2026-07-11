@@ -58,8 +58,11 @@ jobs:
           enable-cache: true
           python-version: ${{ matrix.python-version }}
       - run: uv sync --locked
-      # coverage floor is enforced once in the combine job, not per leg
+      # coverage floor is enforced once in the combine job, not per leg;
+      # per-leg COVERAGE_FILE suffix so the .coverage.* upload pattern matches
       - run: uv run pytest --cov -q --cov-fail-under=0
+        env:
+          COVERAGE_FILE: .coverage.py${{ matrix.python-version }}
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: coverage-${{ matrix.python-version }}
