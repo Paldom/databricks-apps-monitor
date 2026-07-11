@@ -1,0 +1,41 @@
+resources:
+  jobs:
+    cost_rollup:
+      name: monitor-cost-rollup
+      description: >-
+        Daily per-app cost rollup: app-compute DBUs/$ from system.billing.usage ×
+        list_prices, AI token usage from telemetry + AI Gateway usage where enabled.
+      schedule:
+        quartz_cron_expression: "0 30 5 * * ?"
+        timezone_id: UTC
+        pause_status: UNPAUSED
+      max_concurrent_runs: 1
+      queue:
+        enabled: true
+      environments:
+        - environment_key: default
+          spec:
+            client: "2"
+            dependencies:
+              - databricks-sdk>=0.38.0
+              - httpx    # cost_rollup imports source_scan.emit_alerts for spike alerts
+      tasks:
+        - task_key: rollup
+          environment_key: default
+          spark_python_task:
+            python_file: ../jobs/cost_rollup.py
+            parameters:
+              - "--catalog=${var.catalog}"
+              - "--schema=${var.schema}"
+              - "--jobs-dir=${workspace.file_path}/jobs"
+        - task_key: housekeeping
+          depends_on:
+            - task_key: rollup
+          run_if: ALL_DONE   # retention runs even if the rollup fails
+          environment_key: default
+          spark_python_task:
+            python_file: ../jobs/housekeeping.py
+            parameters:
+              - "--catalog=${var.catalog}"
+              - "--schema=${var.schema}"
+              - "--days=90"

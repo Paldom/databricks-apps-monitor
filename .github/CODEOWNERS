@@ -1,0 +1,9 @@
+# LAST matching rule wins — keep the catch-all first, security-critical paths after.
+*                      @Paldom
+
+# Paths that define automation can bypass every other control; keep them owner-reviewed.
+/.github/              @Paldom
+/.github/CODEOWNERS    @Paldom
+/AGENTS.md             @Paldom
+/CLAUDE.md             @Paldom
+/.claude/              @Paldom

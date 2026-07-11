@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions & support
+    url: https://github.com/Paldom/databricks-apps-monitor/blob/main/SUPPORT.md
+    about: Discussions are not enabled on this repo — see SUPPORT.md for how to get help. The issue tracker is for actionable bugs and features.
+  - name: Report a security vulnerability
+    url: https://github.com/Paldom/databricks-apps-monitor/security/advisories/new
+    about: Never open a public issue for security problems. Use a private security advisory (see SECURITY.md).

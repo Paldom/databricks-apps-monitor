@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <title>databricks-apps-monitor — pulse</title>
+  <rect id="bg" width="1024" height="1024" rx="229" fill="#2A2A2E"/>
+  <g id="glyph">
+    <polyline points="256,512 384,512 448,704 512,320 576,704 640,512 768,512"
+      fill="none" stroke="#E8E8EA" stroke-width="64"
+      stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+</svg>

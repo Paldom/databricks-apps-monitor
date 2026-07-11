@@ -1,0 +1,6 @@
+resources:
+  experiments:
+    agent_exp:
+      name: /Users/${workspace.current_user.userName}/monitor-demo-agent-traces
+      # MLflow traces from the demo agents land here; the monitor reads them via the
+      # experiment id stored in the app's resource bindings (apps_inventory).

@@ -1,0 +1,108 @@
+{
+  "defaults": {
+    "latency_budget_ms": 3000,
+    "timeout_s": 20
+  },
+  "journeys": [
+    {
+      "app": "apps-monitor",
+      "name": "fleet-board",
+      "steps": [
+        {
+          "method": "GET",
+          "path": "/api/fleet",
+          "expect_status": 200,
+          "expect_contains": "kpis"
+        }
+      ]
+    },
+    {
+      "app": "monitor-demo-healthy",
+      "name": "browse-and-checkout",
+      "steps": [
+        {
+          "method": "GET",
+          "path": "/api/items",
+          "expect_status": 200,
+          "expect_contains": "SKU-"
+        },
+        {
+          "method": "POST",
+          "path": "/api/checkout",
+          "expect_status": 200,
+          "expect_contains": "confirmed"
+        },
+        {
+          "method": "GET",
+          "path": "/api/work",
+          "expect_status": 200,
+          "expect_contains": "work_ms"
+        }
+      ]
+    },
+    {
+      "app": "monitor-demo-flaky",
+      "name": "browse-and-checkout",
+      "steps": [
+        {
+          "method": "GET",
+          "path": "/api/items",
+          "expect_status": 200
+        },
+        {
+          "method": "POST",
+          "path": "/api/checkout",
+          "expect_status": 200,
+          "expect_contains": "confirmed"
+        }
+      ]
+    },
+    {
+      "app": "monitor-demo-slow",
+      "name": "browse-under-budget",
+      "latency_budget_ms": 1500,
+      "steps": [
+        {
+          "method": "GET",
+          "path": "/api/items",
+          "expect_status": 200
+        },
+        {
+          "method": "GET",
+          "path": "/api/work",
+          "expect_status": 200
+        }
+      ]
+    },
+    {
+      "app": "monitor-demo-vuln",
+      "name": "smoke",
+      "steps": [
+        {
+          "method": "GET",
+          "path": "/",
+          "expect_status": 200,
+          "expect_contains": "vuln"
+        },
+        {
+          "method": "GET",
+          "path": "/api/items",
+          "expect_status": 200
+        }
+      ]
+    },
+    {
+      "app": "monitor-demo-agent",
+      "name": "ops-brief",
+      "steps": [
+        {
+          "method": "GET",
+          "path": "/api/ops/brief",
+          "expect_status": 200,
+          "expect_contains": "summary"
+        }
+      ],
+      "latency_budget_ms": 15000
+    }
+  ]
+}

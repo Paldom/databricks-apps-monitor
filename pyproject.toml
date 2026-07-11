@@ -1,0 +1,104 @@
+[build-system]
+requires = ["uv_build>=0.11,<0.12"]
+build-backend = "uv_build"
+
+[project]
+name = "monitor-middleware"
+version = "0.1.0"
+description = "Golden-envelope OpenTelemetry middleware for Databricks Apps — request/session/user correlation plus a feedback route, in one file."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.10"
+authors = [{ name = "Domonkos Pal", email = "domonkos.pal@databricks.com" }]
+dependencies = [
+  "opentelemetry-api>=1.25",
+  "starlette>=0.37",
+]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Framework :: FastAPI",
+  "Topic :: System :: Monitoring",
+]
+
+[project.urls]
+Repository = "https://github.com/Paldom/databricks-apps-monitor"
+
+[dependency-groups]
+dev = [
+    "fastapi>=0.139.0",
+    "httpx2>=2.5.0",
+    "mypy==2.1.0",
+    "pre-commit==4.3.0",
+    "pytest>=9.1.1",
+    "pytest-cov>=7.1.0",
+    "ruff==0.15.20",
+]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+addopts = "-ra --strict-markers --strict-config"
+filterwarnings = ["error"]
+
+[tool.coverage.run]
+source = ["src"]
+branch = true
+parallel = true
+relative_files = true
+
+[tool.coverage.report]
+fail_under = 85
+show_missing = true
+skip_covered = true
+exclude_lines = [
+  "pragma: no cover",
+  "if TYPE_CHECKING:",
+  "raise NotImplementedError",
+  "if __name__ == .__main__.:",
+]
+
+[tool.mypy]
+# strict gate covers the published package; app/ and jobs/ are Databricks serverless
+# deployment payloads (pyspark/databricks-sdk at runtime) and stay out of scope.
+python_version = "3.10"
+strict = true
+warn_unused_ignores = true
+files = ["src"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+required-version = "0.15.20"
+
+[tool.ruff.lint]
+select = [
+  "E", "W",  # pycodestyle
+  "F",       # pyflakes
+  "I",       # isort
+  "UP",      # pyupgrade
+  "B",       # flake8-bugbear
+  "C4",      # flake8-comprehensions
+  "SIM",     # flake8-simplify
+  "BLE",     # blind excepts must carry their documented noqa
+  "RUF",     # ruff-specific
+]
+ignore = [
+  "E501",    # line length is the formatter's job
+  "SIM105",  # try/except-pass sites carry per-site reason comments suppress() would lose
+  "RUF002",  # em-dashes and typographic marks in docstrings are deliberate house style
+  "RUF003",  # same, in comments
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["monitor_middleware", "alerts", "queries", "mlflow_traces", "source_scan"]
+
+[tool.ruff.format]
+quote-style = "double"
+docstring-code-format = true
+
+[tool.uv]
+# Freshness buffer: resolver ignores anything published after this timestamp,
+# guarding `uv lock` against just-published (possibly malicious) releases.
+# Bump on release; Dependabot cooldown covers the bot side (advisories bypass it).
+exclude-newer = "2026-07-03T00:00:00Z"

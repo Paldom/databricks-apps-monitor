@@ -1,0 +1,92 @@
+name: Bug report
+description: Something in Apps Monitor is broken or behaving unexpectedly.
+title: "[Bug]: "
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Please search existing issues first — duplicates are closed.
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Preflight
+      options:
+        - label: I searched existing issues and this is not a duplicate.
+          required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: The actual behavior you observed, including any error message.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect to happen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Minimal, complete steps. Issues without repro steps get labeled needs-repro.
+      placeholder: |
+        1. databricks bundle deploy -t dev
+        2. Open the monitor app, go to ...
+        3. Observe ...
+    validations:
+      required: true
+
+  - type: input
+    id: cli-version
+    attributes:
+      label: Databricks CLI version
+      description: Output of `databricks version`.
+      placeholder: "v0.260.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: cloud
+    attributes:
+      label: Workspace cloud
+      options:
+        - AWS
+        - Azure
+        - GCP
+    validations:
+      required: true
+
+  - type: dropdown
+    id: bundle
+    attributes:
+      label: Which bundle?
+      options:
+        - Monitor toolkit (databricks.yml)
+        - Example apps (example-apps/)
+        - Both / not sure
+    validations:
+      required: true
+
+  - type: input
+    id: revision
+    attributes:
+      label: Monitor app deployment ID or git revision
+      description: The app's deployment ID, or `git rev-parse --short HEAD` of the checkout you deployed.
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log output
+      description: App logs, job run output, or CLI output. Pasted raw — formatted automatically. Redact workspace URLs and tokens.
+      render: shell
+    validations:
+      required: false

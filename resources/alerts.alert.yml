@@ -1,0 +1,59 @@
+# Bundle-managed SQL alerts (Alerts v2) — email delivery on top of the in-app alert
+# center. Exemplar: page the owner when any app has critical security findings.
+resources:
+  alerts:
+    # Dead-man watchdog: the monitor watches the fleet — this watches the monitor.
+    # The monitor's probes emit spans continuously; telemetry silence means the monitor
+    # is down or the export pipeline is broken. Independent of the in-app rule engine
+    # (which is dead in exactly the failure mode this catches).
+    telemetry_watchdog:
+      display_name: "[${bundle.target}] Watchdog: monitor telemetry silent"
+      query_text: >-
+        SELECT coalesce(timestampdiff(MINUTE, max(time), now()), 999) AS minutes_silent
+        FROM ${var.catalog}.${var.schema}.otel_spans
+        WHERE service_name = 'apps-monitor' AND date >= current_date() - 1
+      warehouse_id: ${var.warehouse_id}
+      evaluation:
+        comparison_operator: "GREATER_THAN"
+        source:
+          name: minutes_silent
+          display: minutes_silent
+        threshold:
+          value:
+            double_value: 30
+        notification:
+          notify_on_ok: true
+          subscriptions:
+            - user_email: ${workspace.current_user.userName}
+      schedule:
+        pause_status: UNPAUSED
+        quartz_cron_schedule: "0 0/30 * * * ?"
+        timezone_id: UTC
+      permissions:
+        - level: CAN_RUN
+          group_name: users
+    critical_findings:
+      display_name: "[${bundle.target}] Apps fleet: critical security findings"
+      query_text: >-
+        SELECT coalesce(sum(findings_critical), 0) AS critical_findings
+        FROM ${var.catalog}.${var.schema}.v_scan_latest
+      warehouse_id: ${var.warehouse_id}
+      evaluation:
+        comparison_operator: "GREATER_THAN"
+        source:
+          name: critical_findings
+          display: critical_findings
+        threshold:
+          value:
+            double_value: 0
+        notification:
+          notify_on_ok: false
+          subscriptions:
+            - user_email: ${workspace.current_user.userName}
+      schedule:
+        pause_status: UNPAUSED
+        quartz_cron_schedule: "0 0 7 * * ?"
+        timezone_id: UTC
+      permissions:
+        - level: CAN_RUN
+          group_name: users

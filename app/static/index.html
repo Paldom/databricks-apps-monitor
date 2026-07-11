@@ -1,0 +1,1447 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Apps Monitor</title>
+<link rel="icon" type="image/svg+xml" href="icon.svg">
+<style>
+:root{
+  /* minimal shadcn/ui — neutral zinc palette, brand red reserved as a sparing accent */
+  --bg:#FAFAFA; --card:#FFFFFF; --muted:#F4F4F5;
+  --border:#E4E4E7; --border-strong:#D4D4D8;
+  --text:#18181B; --text-muted:#52525B; --text-faint:#A1A1AA;
+  --primary:#18181B; --primary-fg:#FAFAFA;
+  --brand:#FF3621; --brand-dark:#18181B; --brand-soft:#F4F4F5;
+  --ok:#16A34A; --ok-bg:#F0FDF4;
+  --warn:#CA8A04; --warn-bg:#FEFCE8;
+  --crit:#DC2626; --crit-bg:#FEF2F2;
+  --info:#2563EB; --info-bg:#EFF6FF;
+  --purple:#7C3AED; --purple-bg:#F5F3FF; --teal:#0D9488;
+  --grid:#F4F4F5;
+  --shadow:0 1px 2px 0 rgba(0,0,0,.05);
+  --shadow-md:0 4px 12px -2px rgba(0,0,0,.08);
+  --radius:8px;
+  --font:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  --mono:'JetBrains Mono','SF Mono',Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:var(--font);font-size:14px}
+a{color:var(--info);text-decoration:none}
+header{display:flex;align-items:center;gap:12px;padding:12px 24px;background:var(--card);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:5}
+.logo{width:24px;height:24px;border-radius:6px;cursor:pointer;display:block}
+header h1{font-size:16px;font-weight:600;cursor:pointer}
+header .sub{color:var(--text-muted);font-size:12px}
+header .right{margin-left:auto;display:flex;align-items:center;gap:10px;font-size:12px;color:var(--text-muted)}
+button.action{background:var(--card);border:1px solid var(--border-strong);border-radius:8px;padding:6px 12px;font-family:var(--font);font-size:12.5px;font-weight:500;color:var(--text);cursor:pointer}
+button.action:hover{border-color:var(--border-strong);background:var(--muted)}
+main{padding:18px 24px 60px}
+main.home{max-width:1280px;margin:0 auto}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(165px,1fr));gap:12px;margin-bottom:18px}
+.kpi{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);padding:12px 14px}
+.kpi .label{font-size:11.5px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--text-muted)}
+.kpi .value{font-size:26px;font-weight:650;margin-top:4px;font-variant-numeric:tabular-nums}
+.kpi .unit{font-size:13px;color:var(--text-muted);font-weight:500}
+.kpi .hint{font-size:11.5px;color:var(--text-faint);margin-top:2px}
+.kpi.na .value{color:var(--text-faint)}
+section h2{font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted);margin:18px 0 10px}
+.attention{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);margin-bottom:6px}
+.attention .row{display:flex;align-items:center;gap:12px;padding:10px 14px;border-bottom:1px solid var(--grid);cursor:pointer}
+.attention .row:last-child{border-bottom:none}
+.attention .why{color:var(--text-muted);font-size:12.5px;flex:1}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(335px,1fr));gap:14px}
+.card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);padding:16px 18px;cursor:pointer;transition:border-color .12s;display:flex;flex-direction:column}
+.card:hover{border-color:var(--border-strong);box-shadow:var(--shadow-md)}
+.card .top{display:flex;align-items:center;gap:8px}
+.card .name{font-weight:600;font-size:14.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.card .desc2{font-size:12px;color:var(--text-muted);line-height:1.45;margin-top:5px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;height:35px}
+.card .statrow{display:grid;grid-template-columns:1fr 1.5fr .8fr 1fr;gap:6px;border-top:1px solid var(--grid);margin-top:10px;padding-top:10px}
+.card .cs{min-width:0;overflow:hidden}
+.card .cs .v{font-size:15px;font-weight:650;font-variant-numeric:tabular-nums;white-space:nowrap;line-height:1.3}
+.card .cs .v .u{font-size:11px;font-weight:500;color:var(--text-muted)}
+.card .cs .l{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--text-faint);margin-top:1px}
+.card .cardfoot{display:flex;align-items:center;gap:8px;margin-top:auto;border-top:1px solid var(--grid);padding-top:10px;min-height:34px}
+.card .techline{font-size:11px;color:var(--text-faint);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.card .sigs{margin-left:auto;display:flex;gap:6px;flex:none}
+.card .aspects{display:flex;gap:5px;flex-wrap:wrap;align-items:center;margin-top:8px}
+.tchip{font-size:10.5px;font-weight:600;padding:1px 7px;border-radius:5px;background:var(--info-bg);color:var(--info)}
+.cxline{font-size:11px;color:var(--text-faint);margin-left:auto;font-variant-numeric:tabular-nums}
+.srcnote{font-style:normal;font-size:9.5px;font-weight:700;letter-spacing:.04em;color:var(--text-faint);text-transform:uppercase;vertical-align:1px;margin-left:2px}
+.nba{font-size:11px;font-weight:600;border:1px solid var(--border-strong);background:var(--card);border-radius:6px;padding:3px 9px;cursor:pointer;color:var(--text);white-space:nowrap}
+.nba:hover{border-color:var(--brand);color:var(--brand-dark)}
+.takeaways{display:grid;gap:6px;margin:0 0 16px}
+.tk{display:flex;align-items:baseline;gap:9px;font-size:13.5px;font-weight:550;cursor:pointer;padding:8px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg);line-height:1.45}
+.tk:hover{background:var(--card);border-color:var(--border-strong)}
+.tk .sev-ic{width:8px;height:8px;border-radius:50%;flex:none;align-self:center}
+.tk.bad .sev-ic{background:var(--crit)}.tk.warn .sev-ic{background:var(--warn)}.tk.good .sev-ic{background:var(--ok)}
+.tk .go{margin-left:auto;font-size:11px;color:var(--info);font-weight:600;white-space:nowrap}
+.pill{margin-left:auto;font-size:11px;font-weight:600;padding:2px 8px;border-radius:999px;white-space:nowrap}
+.pill.ok{background:var(--ok-bg);color:var(--ok)}
+.pill.degraded{background:var(--warn-bg);color:var(--warn)}
+.pill.down{background:var(--crit-bg);color:var(--crit)}
+.pill.stopped{background:var(--grid);color:var(--text-muted)}
+.pill.pending{background:var(--info-bg);color:var(--info)}
+.spark{margin:10px 0 2px;display:block;width:100%;height:auto}
+.meta{display:flex;gap:12px;font-size:12px;color:var(--text-muted);font-variant-numeric:tabular-nums;flex-wrap:wrap}
+.meta b{color:var(--text);font-weight:600}
+.badges{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;align-items:center}
+.badge{font-size:11px;font-weight:600;padding:2px 8px;border-radius:6px;background:var(--grid);color:var(--text-muted);cursor:pointer}
+.badge:hover{outline:1px solid var(--border-strong);filter:brightness(.96)}
+.stat[data-nav]{cursor:pointer} .stat[data-nav]:hover .l{color:var(--brand-dark)}
+.badge.money{background:var(--info-bg);color:var(--info)}
+.badge.good{background:var(--ok-bg);color:var(--ok)}
+.badge.warn{background:var(--warn-bg);color:var(--warn)}
+.badge.bad{background:var(--crit-bg);color:var(--crit)}
+.empty{background:var(--card);border:1px dashed var(--border-strong);border-radius:var(--radius);padding:40px;text-align:center;color:var(--text-muted)}
+.footerline{margin-top:26px;font-size:11.5px;color:var(--text-faint)}
+/* ---- app detail: rail + canvas ---- */
+.layout{display:grid;grid-template-columns:230px 1fr;gap:18px;align-items:start}
+.rail{position:sticky;top:62px;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);padding:8px;max-height:calc(100vh - 80px);overflow-y:auto}
+.rail .back{display:block;font-size:12.5px;font-weight:600;color:var(--info);padding:8px 10px;border-bottom:1px solid var(--grid);margin-bottom:4px;cursor:pointer}
+.railitem{display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:8px;cursor:pointer;font-size:13px}
+.railitem:hover{background:var(--bg)}
+.railitem.cur{background:var(--brand-soft);font-weight:600}
+.dot{width:8px;height:8px;border-radius:50%;flex:none}
+.railitem .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+.railitem .ms{font-size:11px;color:var(--text-faint);font-variant-numeric:tabular-nums}
+.apphead{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);padding:14px 18px;margin-bottom:14px}
+.apphead .row1{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.apphead h2{font-size:19px;font-weight:650;margin:0;text-transform:none;letter-spacing:0}
+.apphead .desc{font-size:12.5px;color:var(--text-muted);margin-top:2px}
+.stats{display:flex;gap:0;margin-top:12px;border-top:1px solid var(--grid);padding-top:10px;flex-wrap:wrap}
+.stat{padding:0 18px;border-right:1px solid var(--grid);min-width:90px}
+.stat:first-child{padding-left:0}.stat:last-child{border-right:none}
+.stat .v{font-size:17px;font-weight:650;font-variant-numeric:tabular-nums;display:flex;align-items:center;gap:6px;min-height:26px;line-height:1.2}
+.stat .l{font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--text-faint);margin-top:1px}
+.tabs{margin:0 0 14px;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);padding:6px 12px 0}
+.grouprow{display:flex;gap:4px;align-items:center}
+.gtab{border:none;background:none;font-family:var(--font);font-size:13.5px;font-weight:600;color:var(--text-muted);padding:8px 12px;cursor:pointer;border-radius:8px 8px 0 0}
+.gtab.active{color:var(--brand-dark)}
+.gtab:hover{color:var(--text)}
+.subrow{display:flex;flex-wrap:wrap;gap:2px;border-top:1px solid var(--grid);padding:2px 2px 0}
+.tab{border:none;background:none;font-family:var(--font);font-size:12.5px;font-weight:500;color:var(--text-muted);padding:8px 10px;cursor:pointer;border-bottom:2px solid transparent}
+.tab.active{color:var(--brand-dark);border-bottom-color:var(--brand)}
+.tabs select{margin-left:auto;border:1px solid var(--border-strong);border-radius:6px;padding:3px 6px;font-size:12px;color:var(--text);background:var(--card)}
+.ovgrid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-top:4px}
+@media (min-width:1500px){.ovgrid{grid-template-columns:repeat(4,1fr)}}
+@media (max-width:760px){.ovgrid{grid-template-columns:1fr}}
+.ovcard{border:1px solid var(--grid);border-radius:10px;padding:14px 16px}
+.ovcard h4{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted);margin:0 0 8px;display:flex;align-items:center;gap:7px}
+.ovcard .big{font-size:30px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1.1}
+.ovcard .rows{margin-top:8px;font-size:12.5px;color:var(--text-muted);display:grid;gap:4px}
+.ovcard .rows b{color:var(--text)}
+.ovlink{display:inline-block;margin-top:10px;font-size:12px;font-weight:600;color:var(--info);cursor:pointer}
+.ovdot{width:9px;height:9px;border-radius:50%;flex:none}
+#tabBody{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);padding:16px 18px;min-height:300px}
+.errbox{background:var(--crit-bg);color:var(--crit);border-radius:8px;padding:12px;font-size:12.5px;word-break:break-word}
+.loading{color:var(--text-faint);padding:18px;font-size:12.5px}
+table.data{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px}
+table.data th{text-align:left;color:var(--text-muted);font-weight:600;padding:5px 8px;border-bottom:1px solid var(--border);white-space:nowrap}
+table.data td{padding:5px 8px;border-bottom:1px solid var(--grid);font-variant-numeric:tabular-nums;vertical-align:top}
+table.data td.mono{font-family:var(--mono);font-size:11px;word-break:break-all}
+table.data tr.click{cursor:pointer} table.data tr.click:hover{background:var(--bg)}
+.chip{display:inline-block;font-size:10.5px;font-weight:600;padding:1px 6px;border-radius:4px}
+.chip.ERROR,.chip.CRITICAL,.chip.FATAL{background:var(--crit-bg);color:var(--crit)}
+.chip.WARN,.chip.WARNING{background:var(--warn-bg);color:var(--warn)}
+.chip.INFO,.chip.DEBUG,.chip.UNKNOWN{background:var(--info-bg);color:var(--info)}
+.legend{display:flex;gap:14px;font-size:11.5px;color:var(--text-muted);margin:4px 0 2px}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:4px;vertical-align:-1px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media (max-width:1100px){.grid2{grid-template-columns:1fr}.layout{grid-template-columns:1fr}.rail{position:static;display:flex;overflow-x:auto;max-height:none}.rail .back{border:none}}
+.chartbox{border:1px solid var(--grid);border-radius:8px;padding:10px;margin-top:8px}
+.chartbox .cap{font-size:11.5px;color:var(--text-muted);margin-bottom:6px}
+.chartbox svg{width:100%;height:auto}
+.wf{font-size:11.5px;margin-top:10px}
+.wf .row{display:grid;grid-template-columns:minmax(240px,320px) 1fr 76px;align-items:center;gap:8px;padding:3px 0;border-bottom:1px solid var(--grid)}
+.wf .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--mono);font-size:10.5px}
+.wf .track{position:relative;height:12px;background:var(--grid);border-radius:3px}
+.wf .bar{position:absolute;top:0;height:12px;border-radius:3px;background:var(--info)}
+.back{border:none;background:none;color:var(--info);font-size:12.5px;cursor:pointer;padding:0;margin-bottom:8px}
+.tabinfo{font-size:12px;color:var(--text-muted);line-height:1.5;margin:0 0 14px;padding-bottom:10px;border-bottom:1px solid var(--grid)}
+input,select{border:1px solid var(--border-strong);border-radius:6px;padding:6px 9px;font-family:var(--font);
+  font-size:12.5px;color:var(--text);background:var(--card)}
+input:focus,select:focus{outline:none;border-color:var(--info)}
+table.data td input{width:100%;max-width:280px}
+.sec{margin:0 0 20px}
+.sec .cap{font-size:12px;color:var(--text-muted);font-weight:600;margin-bottom:6px}
+.btnrow{display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap}
+#tip{position:fixed;display:none;z-index:40;background:var(--text);color:#fff;font-size:11.5px;line-height:1.55;
+  padding:8px 11px;border-radius:8px;max-width:340px;box-shadow:0 6px 20px rgba(16,24,40,.25);pointer-events:none}
+.actionbar{display:flex;align-items:center;gap:10px;background:var(--muted);border:1px solid var(--border);border-radius:var(--radius);padding:10px 14px;margin-bottom:14px}
+.actionbar .ab-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-right:4px}
+.govpanel{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);padding:14px 18px;margin-bottom:14px;max-width:720px}
+.appactions{display:flex;gap:8px;align-items:center;margin-left:auto;flex-wrap:wrap}
+.appactions .ab-label{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-faint)}
+#tip b{color:#fff} #tip .dim{color:#B9C4CC} #tip .sep{border-top:1px solid rgba(255,255,255,.18);margin:5px 0}
+/* ---- dashboard segmented control (shadcn tabs/toggle-group) ---- */
+.dashhead{display:flex;align-items:center;gap:16px;margin-bottom:18px;flex-wrap:wrap}
+.dashhead h1{font-size:20px;font-weight:650;letter-spacing:-.01em}
+.seg{display:inline-flex;background:var(--muted);border:1px solid var(--border);border-radius:9px;padding:3px;gap:2px}
+.seg button{border:none;background:none;font-family:var(--font);font-size:13px;font-weight:500;color:var(--text-muted);padding:6px 15px;border-radius:6px;cursor:pointer;transition:background .1s}
+.seg button.active{background:var(--card);color:var(--text);box-shadow:var(--shadow)}
+.seg button:hover:not(.active){color:var(--text)}
+.dashhead .spacer{flex:1}
+/* ---- catalog (faceted table) ---- */
+.catlayout{display:grid;grid-template-columns:210px 1fr;gap:18px;align-items:start}
+.facets{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;position:sticky;top:74px}
+.facets h4{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted);margin:14px 0 6px}
+.facets h4:first-child{margin-top:0}
+.facets label{display:flex;align-items:center;gap:7px;font-size:12.5px;padding:3px 0;cursor:pointer}
+.facets .ct{margin-left:auto;color:var(--text-faint);font-variant-numeric:tabular-nums}
+.catwrap{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
+table.cat{width:100%;border-collapse:collapse;font-size:12.5px}
+table.cat th{text-align:left;padding:10px 12px;border-bottom:1px solid var(--border);color:var(--text-muted);font-weight:600;cursor:pointer;white-space:nowrap;user-select:none}
+table.cat th:hover{color:var(--text)} table.cat th.sorted{color:var(--text)}
+table.cat td{padding:9px 12px;border-bottom:1px solid var(--grid);font-variant-numeric:tabular-nums;white-space:nowrap}
+table.cat tr.click{cursor:pointer} table.cat tr.click:hover{background:var(--muted)}
+.catsearch{border:1px solid var(--border-strong);border-radius:8px;padding:7px 11px;font-size:13px;min-width:240px}
+.dotv{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:7px;vertical-align:0}
+/* ---- topology ---- */
+#topo{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
+#topo text{font-family:var(--font)}
+.topolegend{display:flex;gap:16px;font-size:11.5px;color:var(--text-muted);margin-bottom:10px}
+.topolegend i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:5px;vertical-align:0}
+/* ---- inspect (single app, no rail) ---- */
+main.inspect{max-width:1440px;margin:0 auto}
+.backbar{margin-bottom:12px}
+.backbar a{font-size:12.5px;font-weight:500;color:var(--text-muted);cursor:pointer}
+.backbar a:hover{color:var(--text)}
+</style>
+</head>
+<body>
+<header>
+  <img class="logo" src="icon.svg" alt="Apps Monitor" onclick="location.hash=''">
+  <div onclick="location.hash=''"><h1>Apps Monitor</h1><div class="sub">Fleet health, cost, usage & code risk for Databricks Apps</div></div>
+  <div class="right">
+    <select id="wsel" title="Workspace" style="display:none;border:1px solid var(--border-strong);border-radius:8px;padding:6px 8px;font-family:var(--font);font-size:12.5px;font-weight:500;color:var(--text);background:var(--card)"></select>
+    <span id="refreshed">loading…</span>
+    <button class="action" onclick="location.hash='#/ask'" title="Ask about the fleet in plain language">🧞 Ask</button>
+    <button class="action" id="bell" onclick="location.hash='#/alerts'" title="Alerts">🔔 <span id="bellCount"></span></button>
+    <button class="action" id="sync" title="Runs the inventory job: snapshots the fleet and grants the monitor probe access">Refresh inventory</button>
+  </div>
+</header>
+<main id="view"></main>
+<script>
+const $=s=>document.querySelector(s);
+const SLABEL={ok:'Healthy',degraded:'Degraded',down:'Unreachable',stopped:'Stopped',pending:'Starting'};
+const sl=s=>SLABEL[s]||s;
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmt=(v,d=0)=>v==null||v===''?'–':Number(v).toLocaleString('en-US',{maximumFractionDigits:d});
+const ago=ts=>{if(!ts)return'–';const s=Math.max(0,Date.now()/1000-ts);return s<90?`${s|0}s ago`:s<5400?`${Math.round(s/60)}m ago`:`${Math.round(s/3600)}h ago`};
+async function get(u){const r=await fetch(u);if(!r.ok){let m='HTTP '+r.status;try{m=(await r.json()).detail||m}catch(e){}throw new Error(m)}return r.json()}
+
+let DATA=null,ENRICH={security:{},reviews:{},cost:{},config:{},mtd:{},perf:{},usage:{},real_fleet:null},ALERTS=null,CUR=null,TAB='overview';
+let SEG='overview';                       // dashboard segment: overview | catalog | topology | governance
+const SEGS=[['overview','Overview'],['catalog','Apps'],['topology','Topology'],['alerts','Alerts'],['governance','Governance']];
+
+// ---------------------------------------------------------------- routing
+const TAB_ALIAS={probes:'operate',uptime:'operate',ops:'operate',synthetics:'operate',
+  agent:'traces',security:'quality',review:'quality',analytics:'adoption',playwright:'uitests'};
+function route(){
+  const h=location.hash;
+  let m=h.match(/^#\/app\/([^/]+)(?:\/([a-z]+))?/);
+  if(m){const t=m[2]||'overview';return{page:'app',app:decodeURIComponent(m[1]),tab:TAB_ALIAS[t]||t};}
+  const seg=(h.match(/^#\/(catalog|topology|governance|alerts|ask)/)||[])[1];
+  return{page:'home',seg:seg||'overview'};
+}
+function goApp(name,tab){location.hash=`#/app/${encodeURIComponent(name)}/${tab||'overview'}`}
+function goSeg(seg){location.hash=seg&&seg!=='overview'?`#/${seg}`:'';}
+window.addEventListener('hashchange',renderRoute);
+
+function renderRoute(){
+  const r=route();
+  if(r.page==='home'){CUR=null;SEG=r.seg;renderDashboard();}
+  else{const changed=CUR!==r.app||TAB!==r.tab;CUR=r.app;TAB=r.tab;renderApp(changed);}
+}
+
+// ------------------------------------------------------------- dashboard shell
+const statusColor=s=>({ok:'#16A34A',degraded:'#CA8A04',down:'#DC2626',stopped:'#A1A1AA',pending:'#2563EB'}[s]||'#A1A1AA');
+function dashHeadHtml(){
+  return `<div class="dashhead"><h1>Fleet</h1>
+    <div class="seg">${SEGS.map(([id,l])=>`<button class="${id===SEG?'active':''}" onclick="goSeg('${id}')">${l}</button>`).join('')}</div>
+    <div class="spacer"></div><span style="font-size:12px;color:var(--text-faint)">${DATA?DATA.kpis.apps_total+' apps':''}</span></div>`;
+}
+function renderDashboard(){
+  const v=$('#view');v.className='home';
+  if(!DATA){v.innerHTML='<div class="loading">loading fleet…</div>';return}
+  if(SEG==='governance'){renderGovernanceSeg();return;}
+  if(SEG==='alerts'){renderAlertsSeg();return;}
+  let body='';
+  if(SEG==='overview')body=overviewSegHtml();
+  else if(SEG==='catalog')body=catalogSegHtml();
+  else if(SEG==='topology')body='<div class="topolegend"><span><i style="background:var(--ok)"></i>healthy</span><span><i style="background:var(--warn)"></i>degraded</span><span><i style="background:var(--crit)"></i>down</span><span><i style="background:var(--border-strong)"></i>dependency</span></div><div id="topo"></div>';
+  else if(SEG==='ask')body=DATA.genie_url
+    ?`<div style="font-size:12.5px;color:var(--text-muted);margin:-6px 0 12px">Ask the fleet anything in plain language — cost, health, CVEs, adoption. Genie answers with SQL over the governed gold views.</div>
+      <iframe src="${esc(DATA.genie_url)}" allow="clipboard-write" style="width:100%;height:calc(100vh - 210px);border:1px solid var(--border);border-radius:var(--radius);background:var(--card)"></iframe>`
+    :'<div class="empty">Genie space not configured — set MONITOR_GENIE_SPACE_ID on the app.</div>';
+  v.innerHTML=dashHeadHtml()+body;
+  if(SEG==='catalog')wireCatalog();
+  if(SEG==='topology')drawTopology();
+}
+function renderAlertsSeg(){
+  const v=$('#view');v.className='home';
+  v.innerHTML=dashHeadHtml()+alertsBodyHtml();
+}
+// keep old name working for the refresh loops
+function renderHome(){renderDashboard();}
+
+// ------------------------------------------------------------------- home
+function statusOfApp(a){return a.status}
+function alertCount(name){return ALERTS?ALERTS.active.filter(x=>x.app===name).length:0}
+// rich hover tooltips: any element with data-tip (HTML, attribute-escaped)
+function tipVerdict(name){
+  const r=ENRICH.reviews[name];if(!r)return '';
+  return `<b>Code review — ${esc((r.verdict||'?').replace(/_/g,' '))}</b><br>
+    overall <b>${esc(r.score_overall)}</b>/10 · by ${esc(r.model||'?')}<br>
+    <span class="dim">${r.reviewed_at?new Date(r.reviewed_at).toLocaleString():''}</span>
+    ${r.summary?`<div class="sep"></div>“${esc(r.summary)}”`:''}
+    <div class="sep"></div><span class="dim">Quality tab has the full scan & review</span>`;
+}
+function tipScan(name){
+  const s=ENRICH.security[name];if(!s)return '';
+  return `<b>Source scan — ${esc(s.quality_score)}/100</b><br>
+    critical <b>${esc(s.findings_critical)}</b> · high <b>${esc(s.findings_high)}</b> ·
+    medium ${esc(s.findings_medium)} · low ${esc(s.findings_low)}<br>
+    deps ${esc(s.deps)} (${esc(s.deps_pinned)} pinned)<br>
+    <span class="dim">CVEs (OSV.dev) + secrets + smells + bandit · scanned ${s.scanned_at?new Date(s.scanned_at).toLocaleString():'?'}</span>`;
+}
+function tipCost(name){
+  const c=ENRICH.cost[name];if(!c)return '';
+  return `<b>Cost — last 7 days</b><br>
+    compute: <b>${c.usd_7d!=null?'$'+fmt(c.usd_7d,2):'no billing rows yet'}</b><br>
+    AI: <b>${fmt(c.ai_calls_7d)}</b> calls · <b>${fmt(c.tokens_7d)}</b> tokens<br>
+    <span class="dim">billing lags a few hours · exact tokens from the app's own gen_ai spans · Cost tab has the daily series</span>`;
+}
+function tipAlerts(name){
+  const list=ALERTS?ALERTS.active.filter(x=>x.app===name):[];
+  if(!list.length)return '';
+  return `<b>Firing now</b><br>${list.map(x=>`• <b>${esc(x.rule)}</b> (${esc(x.severity)}) — ${esc(x.message)}`).join('<br>')}
+    <div class="sep"></div><span class="dim">since ${esc((list[0].since||'').slice(11,19))} UTC · alert center 🔔 has history</span>`;
+}
+const nav=(name,tab)=>`onclick="event.stopPropagation();goApp('${esc(name)}','${tab}')"`;
+function verdictBadge(name){
+  const r=ENRICH.reviews[name];if(!r)return '';
+  const v=r.verdict||'';
+  const cls=v==='approve'?'good':v==='reject'?'bad':'warn';
+  const icon=v==='approve'?'✓':v==='reject'?'✗':'⚠';
+  return `<span class="badge ${cls}" ${nav(name,'quality')} data-tip="${esc(tipVerdict(name))}">${icon} review ${r.score_overall??''}</span>`;
+}
+function scoreBadge(name){
+  const s=ENRICH.security[name];if(!s)return '';
+  const sc=+s.quality_score,cls=sc>=80?'good':sc>=60?'warn':'bad';
+  const crit=+s.findings_critical+ +s.findings_high;
+  return `<span class="badge ${cls}" ${nav(name,'quality')} data-tip="${esc(tipScan(name))}">🛡 ${sc}${crit?` · ${crit}!`:''}</span>`;
+}
+function costBadge(name){
+  const c=ENRICH.cost[name];if(!c||c.usd_7d==null&&!+c.tokens_7d)return '';
+  const money=c.usd_7d!=null?`$${fmt(c.usd_7d,2)}`:'';
+  const tok=+c.tokens_7d?`${fmt(c.tokens_7d)} tok`:'';
+  return `<span class="badge money" ${nav(name,'cost')} data-tip="${esc(tipCost(name))}">${[money,tok].filter(Boolean).join(' · ')}</span>`;
+}
+function alertBadge(name){const n=alertCount(name);return n?`<span class="badge bad" onclick="event.stopPropagation();location.hash='#/alerts'" data-tip="${esc(tipAlerts(name))}">🔔 ${n}</span>`:''}
+function tagsOf(name){try{return JSON.parse((ENRICH.config[name]||{}).tags_json||'{}')}catch(e){return{}}}
+function budgetBadge(name){
+  const c=ENRICH.config?ENRICH.config[name]:null;if(!c||!+c.budget_usd_month)return '';
+  const mtd=+((ENRICH.mtd[name]||{}).mtd_usd||0),b=+c.budget_usd_month,pct=100*mtd/b;
+  const cls=pct>=100?'bad':pct>=70?'warn':'good';
+  return `<span class="badge ${cls}" ${nav(name,'cost')} data-tip="${esc(`<b>Budget</b><br>$${fmt(mtd,2)} of $${fmt(b,2)} month-to-date (<b>${fmt(pct,0)}%</b>)<br><span class='dim'>set on the Ops tab · alerts at 70/100%</span>`)}">◔ ${fmt(pct,0)}%</span>`;
+}
+function tagBadge(name){
+  const t=tagsOf(name);if(!t.team&&!t.cost_center)return '';
+  return `<span class="badge" ${nav(name,'ops')} data-tip="${esc(`<b>Tags</b><br>${Object.entries(t).map(([k,v])=>k+': <b>'+esc(v)+'</b>').join('<br>')}`)}">🏷 ${esc(t.team||t.cost_center)}</span>`;
+}
+
+function kpi(label,value,unit,hint,cls=''){return `<div class="kpi ${cls}"><div class="label">${label}</div><div class="value">${value}<span class="unit"> ${unit||''}</span></div><div class="hint">${hint||''}</div></div>`}
+function sparkline(spark,W=280,H=44){
+  if(!spark||spark.length<3)return `<svg class="spark" viewBox="0 0 ${W} ${H}"><line x1="0" y1="${H-4}" x2="${W}" y2="${H-4}" stroke="var(--grid)" stroke-width="1"/><text x="2" y="${H-10}" font-size="9.5" fill="var(--text-faint)">collecting probe history…</text></svg>`;
+  const lat=spark.map(p=>p[1]),max=Math.max(...lat,1)*1.18;
+  const step=W/(spark.length-1);
+  const y=v=>H-4-(v/max)*(H-10);
+  const pts=spark.map((p,i)=>`${(i*step).toFixed(1)},${y(p[1]).toFixed(1)}`);
+  const line=pts.join(' ');
+  const area=`0,${H-3} ${line} ${W},${H-3}`;
+  const fails=spark.map((p,i)=>p[0]?'':`<circle cx="${(i*step).toFixed(1)}" cy="${y(p[1]).toFixed(1)}" r="2.6" fill="var(--crit)" stroke="var(--card)" stroke-width="1"/>`).join('');
+  return `<svg class="spark" viewBox="0 0 ${W} ${H}" aria-label="probe latency, last ${spark.length} checks">
+    <defs><linearGradient id="sg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="var(--info)" stop-opacity=".16"/><stop offset="1" stop-color="var(--info)" stop-opacity="0"/></linearGradient></defs>
+    <polygon points="${area}" fill="url(#sg)"/>
+    <line x1="0" y1="${H-3}" x2="${W}" y2="${H-3}" stroke="var(--grid)" stroke-width="1"/>
+    <polyline points="${line}" fill="none" stroke="var(--info)" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/>${fails}</svg>`;
+}
+// technology chips from declared resource bindings + scan ecosystems
+const RES_TECH={serving_endpoint:'LLM',sql_warehouse:'SQL',job:'Jobs',experiment:'MLflow',
+  database:'Lakebase',postgres:'Lakebase',genie_space:'Genie',uc_securable:'UC data',app:'App-to-app'};
+function techChips(a){
+  const t=new Set(['Python']);
+  const s=ENRICH.security[a.name];
+  if(s&&(s.has_npm===true||s.has_npm==='true'))t.add('Node');
+  (a.resources||[]).forEach(r=>{const k=Object.keys(r).find(x=>x!=='name'&&r[x]&&typeof r[x]==='object');if(k&&RES_TECH[k])t.add(RES_TECH[k]);});
+  return [...t].slice(0,5).map(x=>`<span class="tchip">${x}</span>`).join('');
+}
+function complexityLine(a){
+  const s=ENRICH.security[a.name];if(!s||s.py_loc==null)return '';
+  const loc=+s.py_loc,deps=+s.deps;
+  const word=loc>3000||deps>40?'complex':loc>700?'moderate':'simple';
+  return `<span class="cxline" data-tip="${esc(`<b>Complexity — ${word}</b><br>${fmt(loc)} lines · ${fmt(s.files)} files · ${fmt(deps)} packages<br><span class='dim'>from the latest source scan</span>`)}">${word} · ${loc>=1000?fmt(loc/1000,1)+'k':fmt(loc)} loc · ${fmt(deps)} deps</span>`;
+}
+function techLine(a){
+  const t=new Set(['Python']);
+  const sec=ENRICH.security[a.name];
+  if(sec&&(sec.has_npm===true||sec.has_npm==='true'))t.add('Node');
+  (a.resources||[]).forEach(r=>{const k=Object.keys(r).find(x=>x!=='name'&&r[x]&&typeof r[x]==='object');if(k&&RES_TECH[k])t.add(RES_TECH[k]);});
+  const parts=[...t].slice(0,4).join(' · ');
+  const cx=sec&&sec.py_loc!=null?` — ${+sec.py_loc>3000||+sec.deps>40?'complex':+sec.py_loc>700?'moderate':'simple'}, ${+sec.py_loc>=1000?fmt(sec.py_loc/1000,1)+'k':fmt(sec.py_loc)} loc`:'';
+  return esc(parts)+esc(cx);
+}
+function card(a){
+  const p=ENRICH.perf[a.name],u=ENRICH.usage[a.name],m=ENRICH.mtd[a.name],sec=ENRICH.security[a.name];
+  const p95=p&&p.real_p95_ms!=null?`${fmt(p.real_p95_ms)}<span class="u"> ms</span><i class="srcnote">real</i>`:`${fmt(a.p95_ms)}<span class="u"> ms</span><i class="srcnote">probe</i>`;
+  const p95tip=p&&p.real_p95_ms!=null
+    ?`<b>Real-traffic p95</b><br>${fmt(p.requests_24h)} requests · 24 h · probes excluded<br><span class='dim'>reachability probe RTT: ${fmt(a.p95_ms)} ms</span>`
+    :`<b>Reachability p95</b><br>probe round-trip only — no real traffic in 24 h`;
+  const techtip=sec?`<b>Complexity</b><br>${fmt(sec.py_loc)} lines · ${fmt(sec.files)} files · ${fmt(sec.deps)} packages (${fmt(sec.deps_pinned)} pinned)<br><span class='dim'>from the latest source scan</span>`:'';
+  return `<div class="card" onclick="goApp('${esc(a.name)}')">
+    <div class="top"><div class="name">${esc(a.name)}</div><span class="pill ${a.status}">${sl(a.status)}</span></div>
+    <div class="desc2">${esc(a.description||'')}</div>
+    ${sparkline(a.spark)}
+    <div class="statrow">
+      <div class="cs" data-tip="<b>Reachability</b><br>ingress probes answered · 24 h"><div class="v">${fmt(a.uptime_24h,1)}<span class="u">%</span></div><div class="l">reachable</div></div>
+      <div class="cs" data-tip="${esc(p95tip)}"><div class="v">${p95}</div><div class="l">p95</div></div>
+      <div class="cs" data-tip="<b>Adoption</b><br>peak daily users · 7 days"><div class="v">${u&&+u.peak_dau?fmt(u.peak_dau):'–'}</div><div class="l">users 7d</div></div>
+      <div class="cs" ${nav(a.name,'cost')} data-tip="${esc(tipCost(a.name)||'<b>Cost</b><br>no billing rows yet (lags a few hours)')}"><div class="v">${m&&m.mtd_usd!=null?'$'+fmt(m.mtd_usd,0):'–'}</div><div class="l">cost MTD</div></div>
+    </div>
+    <div class="cardfoot"><span class="techline" ${techtip?`data-tip="${esc(techtip)}"`:''}>${techLine(a)}</span>
+      <span class="sigs">${scoreBadge(a.name)}${verdictBadge(a.name)}${alertBadge(a.name)}</span></div>
+  </div>`;
+}
+function reason(a){
+  if(a.status==='stopped')return `not running (${esc(a.app_state||a.compute_state||'?')})`;
+  if(a.status==='down')return `probe failing (HTTP ${a.last?a.last.code:'?'})`;
+  if((a.error_rate_1h||0)>5)return `error rate ${fmt(a.error_rate_1h,1)}% in the last hour`;
+  if((a.p95_ms||0)>2500)return `p95 latency ${fmt(a.p95_ms)} ms over budget`;
+  return a.last&&!a.last.ok?`last probe failed (HTTP ${a.last.code})`:'degraded';
+}
+function overviewSegHtml(){
+  const d=DATA,k=d.kpis;
+  const sec=Object.values(ENRICH.security),cost=Object.values(ENRICH.cost);
+  const critHigh=sec.reduce((s,r)=>s+ +r.findings_critical+ +r.findings_high,0);
+  const usd7=cost.reduce((s,r)=>s+(+r.usd_7d||0),0);
+  return `
+    <div class="kpis">
+      ${kpi('Fleet health',`${k.apps_ok}<span class="unit">/${k.apps_total}</span>`,'','apps running & reachable')}
+      ${kpi('Reachability',fmt(k.availability_24h,2),'%','ingress probes answered · 24 h')}
+      ${ENRICH.real_fleet&&ENRICH.real_fleet.real_p95_ms!=null
+        ?kpi('p95 latency',fmt(ENRICH.real_fleet.real_p95_ms),'ms',`real traffic · ${fmt(ENRICH.real_fleet.requests_24h)} req 24 h`)
+        :kpi('p95 latency',fmt(k.p95_ms),'ms','reachability (probe RTT) — real-traffic p95 pending','na')}
+      ${kpi('Probe errors',fmt(k.error_rate_1h,2),'%','failed ingress probes · 1 h')}
+      ${cost.length?kpi('Cost 7 d',`$${fmt(usd7,2)}`,'','compute · per-app on cards'):kpi('Cost','–','','rollup pending','na')}
+      ${sec.length?kpi('Crit+high findings',fmt(critHigh),'',`${sec.length} apps scanned`):kpi('Findings','–','','scans pending','na')}
+    </div>
+    ${d.attention.length?`<section><h2>Needs attention · ${d.attention.length}</h2><div class="attention">
+      ${d.attention.map(a=>`<div class="row" onclick="goApp('${esc(a.name)}')"><b>${esc(a.name)}</b>
+        <span class="pill ${a.status}">${sl(a.status)}</span><span class="why">${reason(a)}</span></div>`).join('')}</div></section>`:''}
+    <section><h2>Fleet</h2><div class="grid">
+      ${d.apps.length?d.apps.map(card).join(''):`<div class="empty">No fleet visible yet. Hit <b>Sync fleet</b> — the inventory job snapshots every app and grants probe access.</div>`}
+    </div></section>
+    <div class="footerline">Live probes every ${d.probe_interval}s (in-memory) · telemetry, scans, reviews, cost and traces from Unity Catalog · click any app to inspect it.</div>`;
+}
+
+// ------------------------------------------------------- catalog segment (table + facets, governance columns)
+let catSort='status',catDir=1,catFacet={status:new Set(),team:new Set()},catQ='';
+const CAT_COLS=[
+  ['name','App',a=>`<span class="dotv" style="background:${statusColor(a.status)}"></span><b>${esc(a.name)}</b>`,a=>a.name],
+  ['status','Status',a=>`<span class="pill ${a.status}" style="margin:0">${sl(a.status)}</span>`,a=>({down:0,stopped:1,degraded:2,pending:3,ok:4}[a.status])],
+  ['uptime','Uptime',a=>fmt(a.uptime_24h,1)+'%',a=>a.uptime_24h??-1],
+  ['p95','p95 ms',a=>{const p=ENRICH.perf[a.name];return p&&p.real_p95_ms!=null?`${fmt(p.real_p95_ms)}<i class="srcnote">real</i>`:`${fmt(a.p95_ms)}<i class="srcnote">probe</i>`},a=>{const p=ENRICH.perf[a.name];return p&&p.real_p95_ms!=null?+p.real_p95_ms:(a.p95_ms??-1)}],
+  ['err','Err 1h',a=>fmt(a.error_rate_1h,1)+'%',a=>a.error_rate_1h??-1],
+  ['cost','$ MTD',a=>{const m=ENRICH.mtd[a.name];return m?'$'+fmt(m.mtd_usd,2):'<span style="color:var(--text-faint)">–</span>'},a=>{const m=ENRICH.mtd[a.name];return m?+m.mtd_usd:-1}],
+  ['scan','Scan',a=>{const s=ENRICH.security[a.name];return s?`<span style="color:${scoreColor(+s.quality_score)};font-weight:600">${s.quality_score}</span>`:'<span style="color:var(--text-faint)">–</span>'},a=>{const s=ENRICH.security[a.name];return s?+s.quality_score:-1}],
+  ['review','Review',a=>{const r=ENRICH.reviews[a.name];return r?(r.verdict==='approve'?'✓':r.verdict==='reject'?'✗':'⚠')+' '+(r.score_overall??''):'<span style="color:var(--text-faint)">–</span>'},a=>{const r=ENRICH.reviews[a.name];return r?+r.score_overall:-1}],
+  ['alerts','Alerts',a=>alertCount(a.name)?`<span style="color:var(--crit);font-weight:600">${alertCount(a.name)}</span>`:'0',a=>alertCount(a.name)],
+  ['team','Team',a=>{const t=tagsOf(a.name);return t.team?esc(t.team):'<span style="color:var(--text-faint)">untagged</span>'},a=>tagsOf(a.name).team||'~'],
+];
+function catVisible(){
+  return DATA.apps.filter(a=>{
+    if(catFacet.status.size&&!catFacet.status.has(a.status))return false;
+    if(catFacet.team.size&&!catFacet.team.has(tagsOf(a.name).team||'untagged'))return false;
+    if(catQ){const h=(a.name+' '+JSON.stringify(tagsOf(a.name))).toLowerCase();if(!h.includes(catQ))return false;}
+    return true;
+  });
+}
+function catalogSegHtml(){
+  const stat={},teams={};
+  DATA.apps.forEach(a=>{stat[a.status]=(stat[a.status]||0)+1;const t=tagsOf(a.name).team||'untagged';teams[t]=(teams[t]||0)+1;});
+  const col=CAT_COLS.find(c=>c[0]===catSort);
+  const rows=catVisible().sort((a,b)=>{const x=col[3](a),y=col[3](b);return (x<y?-1:x>y?1:0)*catDir;});
+  const box=(grp,k,c)=>`<label><input type="checkbox" data-grp="${grp}" value="${esc(k)}" ${catFacet[grp].has(k)?'checked':''}><span>${esc(k)}</span><span class="ct">${c}</span></label>`;
+  return `<div class="catlayout">
+    <aside class="facets">
+      <div style="margin-bottom:12px"><input class="catsearch" id="catq" placeholder="Filter…" value="${esc(catQ)}" style="width:100%;min-width:0"></div>
+      <h4>Status</h4>${Object.entries(stat).sort().map(([k,c])=>box('status',k,c)).join('')}
+      <h4>Team</h4>${Object.entries(teams).sort().map(([k,c])=>box('team',k,c)).join('')}
+    </aside>
+    <div><div style="font-size:12px;color:var(--text-muted);margin-bottom:8px">${rows.length} of ${DATA.apps.length} apps · sort any column · click a row to inspect</div>
+    <div class="catwrap"><table class="cat"><thead><tr>${CAT_COLS.map(c=>`<th class="${c[0]===catSort?'sorted':''}" data-k="${c[0]}">${c[1]}${c[0]===catSort?(catDir>0?' ↑':' ↓'):''}</th>`).join('')}</tr></thead>
+    <tbody>${rows.map(a=>`<tr class="click" onclick="goApp('${esc(a.name)}')">${CAT_COLS.map(c=>`<td>${c[2](a)}</td>`).join('')}</tr>`).join('')}</tbody></table></div></div>
+  </div>`;
+}
+function wireCatalog(){
+  document.querySelectorAll('table.cat th').forEach(h=>h.onclick=()=>{if(catSort===h.dataset.k)catDir*=-1;else{catSort=h.dataset.k;catDir=1;}renderDashboard();});
+  document.querySelectorAll('.facets input').forEach(i=>i.onchange=()=>{i.checked?catFacet[i.dataset.grp].add(i.value):catFacet[i.dataset.grp].delete(i.value);renderDashboard();});
+  const q=$('#catq');if(q)q.oninput=e=>{catQ=e.target.value.toLowerCase().trim();const rows=catVisible();/* light update: re-render body only */renderDashboard();$('#catq')&&$('#catq').focus();};
+}
+
+// ------------------------------------------------------- topology segment (declared resource bindings)
+const TRES={serving_endpoint:['model serving','🤖'],sql_warehouse:['sql warehouse','🏭'],job:['job','⚙️'],experiment:['mlflow experiment','🧪'],database:['lakebase','🐘'],postgres:['lakebase','🐘'],uc_securable:['uc volume/table','📦'],secret:['secret scope','🔑'],genie_space:['genie space','🧞'],app:['app','🔗']};
+function topoDeps(a){
+  const out=[];(a.resources||[]).forEach(r=>{const type=Object.keys(r).find(k=>k!=='name'&&r[k]&&typeof r[k]==='object');if(!type||!TRES[type])return;
+    const t=r[type];const target=t.name||t.securable_full_name||t.instance_name||('id '+(t.id||t.job_id||t.experiment_id||''))||TRES[type][0];
+    out.push({key:TRES[type][0]+':'+target,label:target,icon:TRES[type][1]});});return out;
+}
+function drawTopology(){
+  const host=$('#topo');if(!host||!DATA)return;
+  const apps=DATA.apps;const depsByApp={},peers={},pmeta={};
+  apps.forEach(a=>{const m={};topoDeps(a).forEach(d=>{m[d.key]=d;peers[d.key]=(peers[d.key]||0)+1;pmeta[d.key]=d;});depsByApp[a.name]=m;});
+  const peerList=Object.keys(peers).sort((x,y)=>peers[y]-peers[x]);
+  const W=Math.max(760,host.clientWidth||900),rowH=44,H=Math.max(apps.length,peerList.length)*rowH+40;
+  const ax=Math.max(150,W*0.26),px=W*0.72;
+  const ay=i=>28+i*(H-56)/Math.max(apps.length-1,1),py=i=>28+i*(H-56)/Math.max(peerList.length-1,1);
+  const pos={},ppos={};apps.forEach((a,i)=>pos[a.name]={x:ax,y:ay(i)});peerList.forEach((p,i)=>ppos[p]={x:px,y:py(i)});
+  let edges='';apps.forEach(a=>{const s=pos[a.name];Object.keys(depsByApp[a.name]).forEach(k=>{const d=ppos[k];
+    edges+=`<path d="M${s.x} ${s.y} C ${(s.x+d.x)/2} ${s.y}, ${(s.x+d.x)/2} ${d.y}, ${d.x} ${d.y}" fill="none" stroke="var(--border-strong)" stroke-width="1.2" data-app="${esc(a.name)}"/>`;});});
+  let nodes='';
+  peerList.forEach(p=>{const d=ppos[p],shared=peers[p]>1,m=pmeta[p];
+    nodes+=`<g><rect x="${d.x-5}" y="${d.y-5}" width="10" height="10" rx="2.5" fill="${shared?'var(--text-muted)':'var(--border-strong)'}"/>
+      <text x="${d.x+12}" y="${d.y+3.5}" font-size="11" fill="var(--text-muted)">${esc(m.icon)} ${esc(m.label)}${shared?`  ·${peers[p]} apps`:''}</text></g>`;});
+  apps.forEach(a=>{const s=pos[a.name];
+    nodes+=`<g style="cursor:pointer" onclick="goApp('${esc(a.name)}')" onmouseenter="topoHL('${esc(a.name)}',1)" onmouseleave="topoHL('${esc(a.name)}',0)">
+      <circle cx="${s.x}" cy="${s.y}" r="9" fill="${statusColor(a.status)}"/>${alertCount(a.name)?`<circle cx="${s.x+8}" cy="${s.y-8}" r="4" fill="var(--crit)" stroke="var(--card)" stroke-width="1.5"/>`:''}
+      <text x="${s.x-15}" y="${s.y+3.5}" text-anchor="end" font-size="11.5" fill="var(--text)" font-weight="500">${esc(a.name)}</text></g>`;});
+  const shared=peerList.filter(p=>peers[p]>1).length;
+  host.innerHTML=`<svg width="${W}" height="${H}" style="width:100%">${edges}${nodes}</svg>
+    <div style="padding:8px 14px;font-size:11.5px;color:var(--text-faint);border-top:1px solid var(--grid)">${apps.length} apps · ${peerList.length} declared dependencies · ${shared} shared (blast radius) — hover an app to trace its edges, click to inspect</div>`;
+}
+window.topoHL=(app,on)=>{document.querySelectorAll('#topo path').forEach(p=>{
+  if(p.dataset.app===app){p.setAttribute('stroke',on?'var(--brand)':'var(--border-strong)');p.setAttribute('stroke-width',on?'2':'1.2');}
+  else p.setAttribute('stroke-opacity',on?'0.2':'1');});};
+
+// --------------------------------------------------- inspect (single app, no rail)
+function appOf(name){return DATA?DATA.apps.find(x=>x.name===name):null}
+function stat(v,l,tip,tab){
+  const click=tab?(tab==='alerts'?`data-nav onclick="location.hash='#/alerts'"`:`data-nav onclick="goApp(CUR,'${tab}')"`):'';
+  return `<div class="stat" ${click} ${tip?`data-tip="${esc(tip)}"`:''}><div class="v">${v}</div><div class="l">${l}</div></div>`}
+function headStats(a){
+  const n=alertCount(a.name);
+  return `
+    ${stat(`<span class="pill ${a.status}" style="margin:0;font-size:12px">${sl(a.status)}</span>`,'status','','operate')}
+    ${stat(fmt(a.uptime_24h,1)+'%','reachable 24h','','operate')}
+    ${(()=>{const p=ENRICH.perf[a.name];return p&&p.real_p95_ms!=null
+      ?stat(fmt(p.real_p95_ms)+' ms','p95 · real traffic',`<b>Real-traffic latency</b><br>p95 of ${fmt(p.requests_24h)} actual requests (server spans, probes excluded) — what users experience`,'requests')
+      :stat('–','p95 · real traffic','<b>No real traffic in 24 h</b><br>only probe reachability below','requests')})()}
+    ${stat(fmt(a.p95_ms)+' ms','reachability','<b>Probe round-trip</b><br>the monitor’s 60-second /healthz checks — an availability signal, not user latency','operate')}
+    ${(()=>{const u=ENRICH.usage[a.name];return stat(`<span style="color:var(--purple)">${u&&+u.peak_dau?fmt(u.peak_dau):'–'}</span>`,'users 7d','<b>Adoption</b><br>peak daily users over 7 days — the audience this app serves','adoption')})()}
+    ${stat(fmt(a.error_rate_1h,1)+'%','errors 1h','','errors')}
+    ${stat(n?`<span style="color:var(--crit)">${n}</span>`:'0','alerts firing',n?tipAlerts(a.name):'','alerts')}`;
+}
+const GROUPS=[
+  {name:'Overview',tabs:[['overview','Overview']]},
+  {name:'Investigate',tabs:[['errors','Errors'],['traces','Traces'],['logs','Logs'],['requests','Traffic'],['deps','Dependencies'],['timeline','Changes']]},
+  {name:'Assess',tabs:[['quality','Code & security'],['cost','Cost'],['genai','AI usage']]},
+  {name:'Usage',tabs:[['adoption','Usage']]},
+  {name:'Operate',tabs:[['operate','Operate']]},
+  {name:'Browser checks',tabs:[['uitests','Browser checks']]},
+];
+const TAB_GROUP={};GROUPS.forEach(g=>g.tabs.forEach(([id])=>TAB_GROUP[id]=g.name));
+function tabBarHtml(){
+  const grp=TAB_GROUP[TAB]||'Overview';
+  const g=GROUPS.find(x=>x.name===grp);
+  return `<div class="grouprow">${GROUPS.map(x=>`<button class="gtab ${x.name===grp?'active':''}" data-first="${x.tabs[0][0]}">${x.name}</button>`).join('')}
+      <select id="tabHours"><option value="1">1 h</option><option value="6">6 h</option><option value="24" selected>24 h</option><option value="72">3 d</option></select></div>
+    ${g.tabs.length>1?`<div class="subrow">${g.tabs.map(([id,label])=>`<button class="tab ${id===TAB?'active':''}" data-tab="${id}">${label}</button>`).join('')}</div>`:''}`;
+}
+function renderApp(reload){
+  const v=$('#view');v.className='inspect';
+  if(!DATA){v.innerHTML='<div class="loading">loading fleet…</div>';return}
+  const a=appOf(CUR);
+  if(!a){v.innerHTML=`<div class="errbox">unknown app: ${esc(CUR)}</div>`;return}
+  if(reload||!$('#tabBody')){
+    v.innerHTML=`
+      <div class="backbar"><a onclick="location.hash=''">← Dashboard</a></div>
+      <div class="apphead">
+        <div class="row1"><h2>${esc(a.name)}</h2>
+          <a href="${esc(a.url)}" target="_blank" style="font-size:12px">open app ↗</a>
+          <div class="appactions"><span class="ab-label">Actions</span>
+            ${a.status==='stopped'
+              ?`<button class="action" onclick="appAction(event,'appctl/${encodeURIComponent(a.name)}/start','Starting…')">▶ Start app</button>`
+              :`<button class="action" onclick="if(confirm('Stop ${esc(a.name)}?'))appAction(event,'appctl/${encodeURIComponent(a.name)}/stop','Stopping…')">⏻ Stop app</button>`}
+            <button class="action" onclick="appAction(event,'review/${encodeURIComponent(a.name)}','Requested…')">Request review</button>
+            <button class="action" onclick="appAction(event,'run-journeys','Running…')">Run journeys</button>
+          </div></div>
+        <div class="desc">${esc(a.description||'')}</div>
+        <div class="stats" id="headStats">${headStats(a)}</div>
+      </div>
+      <div class="tabs" id="tabbar">${tabBarHtml()}</div>
+      <div id="tabBody"><div class="loading">loading…</div></div>`;
+    v.querySelectorAll('.tab').forEach(b=>b.onclick=()=>goApp(CUR,b.dataset.tab));
+    v.querySelectorAll('.gtab').forEach(b=>b.onclick=()=>goApp(CUR,b.dataset.first));
+    $('#tabHours').onchange=()=>loadTab(TAB);
+    loadTab(TAB);
+  }else{ // live refresh: header stats only, never clobber tab content
+    if($('#headStats'))$('#headStats').innerHTML=headStats(a);
+  }
+}
+
+const TAB_INFO={
+  overview:'Reliability, code risk, cost and usage at a glance — every card links to its detail.',
+  errors:'Recurring error groups, failed requests and error-level logs.',
+  traces:'Request waterfalls and agent runs, with correlated logs.',
+  logs:'Application log lines, severity-tagged, with trace links.',
+  requests:'Real request volume, latency percentiles and per-route breakdown.',
+  deps:'Outbound calls: where this app spends time when it calls other services.',
+  timeline:'Alerts, deployments and anomalies in one chronology.',
+  quality:'The app review: what it is, the source & package scan, and an automated review (advisory — not a human sign-off).',
+  cost:'Compute cost (list-price estimate, billing lags hours), AI tokens, budget and forecast.',
+  adoption:'Daily and per-user usage, from pseudonymous (hashed) identifiers.',
+  genai:'AI calls, tokens, latency and quality signals per model.',
+  operate:'Reachability probes, synthetic journeys, resources, deployments, access and settings.',
+  uitests:'Real-browser checks (Playwright); results and screenshots land in the ui_tests volume.',
+};
+async function loadTab(tab){
+  const body=$('#tabBody');if(!body)return;
+  document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('active',x.dataset.tab===tab));
+  body.innerHTML='<div class="loading">querying…</div>';
+  const h=$('#tabHours')?$('#tabHours').value:24;
+  const info=TAB_INFO[tab]?`<div class="tabinfo">${TAB_INFO[tab]}</div>`:'';
+  const set=html=>{body.innerHTML=info+html};
+  const A=n=>`api/apps/${encodeURIComponent(CUR)}`+n;
+  try{
+    if(tab==='overview'){
+      const d=await get(A('/overview'));
+      set(renderOverview(d,appOf(CUR)||{}));
+    }else if(tab==='operate'){
+      const [a,sy,d]=await Promise.all([get(A('')),get(A(`/synthetics?hours=${h}`)),get(A('/ops'))]);
+      set(`<div class="sec"><div class="cap" style="font-size:13px">Availability — probes &amp; journeys</div>${renderUptime(a,sy)}</div>
+           <div class="sec" style="margin-top:26px;border-top:1px solid var(--grid);padding-top:16px"><div class="cap" style="font-size:13px">Operations &amp; governance</div>${renderOps(d)}</div>`);
+    }else if(tab==='uitests'){
+      const sy=await get(A('/synthetics?hours=168'));
+      set(renderUITests(sy.browser||[]));
+    }else if(tab==='requests'){
+      set(renderRequests(await get(A(`/requests?hours=${h}`)),h));
+    }else if(tab==='errors'){
+      set(renderErrors(await get(A(`/errors?hours=${h}`))));
+    }else if(tab==='logs'){
+      set(renderLogs((await get(A(`/logs?hours=${Math.min(h,48)}`))).logs));
+    }else if(tab==='traces'){
+      const [tr,ag]=await Promise.all([get(A(`/traces?hours=${Math.min(h,48)}`)),get(A('/agent-traces')).catch(()=>({experiment:null,traces:[]}))]);
+      set(renderTracesCombined(tr.traces,ag));
+    }else if(tab==='quality'){
+      const [sec,rev]=await Promise.all([get(A('/security')),get(A('/review'))]);
+      const ovv=rev.overview;
+      set(`${ovv?`<div class="sec"><div class="cap" style="font-size:13px">What is this app <button class="action" style="float:right;font-size:11.5px" onclick="window.print()">Print App Review</button></div>
+             <div style="font-size:13.5px;line-height:1.6;max-width:860px">${esc(ovv.purpose||'')}</div>
+             ${(ovv.tech_stack||[]).length?`<div class="badges" style="margin-top:8px">${ovv.tech_stack.map(t=>`<span class="tchip">${esc(t)}</span>`).join('')}</div>`:''}
+             ${(ovv.endpoints||[]).length?`<div class="mono" style="font-size:11px;margin-top:8px;color:var(--text-muted);line-height:1.7">${ovv.endpoints.map(e=>esc(e)).join('<br>')}</div>`:''}</div>`
+           :`<div class="sec" style="font-size:12px;color:var(--text-faint)">App overview (purpose - tech stack - endpoints) appears with the next review run. <button class="action" style="float:right;font-size:11.5px" onclick="window.print()">Print App Review</button></div>`}
+           <div class="sec" style="margin-top:20px;border-top:1px solid var(--grid);padding-top:16px"><div class="cap" style="font-size:13px">Source scan</div>${renderSecurity(sec)}</div>
+           <div class="sec" style="margin-top:26px;border-top:1px solid var(--grid);padding-top:16px"><div class="cap" style="font-size:13px">Automated review (advisory)</div>${renderReview(rev.review)}</div>`);
+    }else if(tab==='adoption'){
+      set(renderAnalytics(await get(A('/analytics'))));
+    }else if(tab==='genai'){
+      set(renderGenAI(await get(A('/genai'))));
+    }else if(tab==='deps'){
+      set(renderDeps((await get(A('/deps'))).deps));
+    }else if(tab==='timeline'){
+      set(renderTimeline(await get(A('/timeline'))));
+    }else if(tab==='cost'){
+      set(renderCost(await get(A('/cost'))));
+    }
+  }catch(e){body.innerHTML=`<div class="errbox">${esc(e.message)}<br><span style="font-size:11px">Deep pages need the SQL warehouse + telemetry/job tables — data appears minutes after apps start exporting / jobs run.</span></div>`;}
+}
+
+function verdictColor(a,d){
+  if(!a||a.status==='down'||a.status==='stopped')return 'var(--crit)';
+  if(a.status==='degraded')return 'var(--warn)';
+  return 'var(--ok)';
+}
+function renderOverview(d,a){
+  const s=d.scan,r=d.review,c7=d.cost_7d,m=d.mtd,u=d.usage,f=d.forecast,cfg=d.config,j=d.synth;
+  const link=(t,label)=>`<span class="ovlink" onclick="goApp(CUR,'${t}')">${label} →</span>`;
+  const dot=c=>`<span class="ovdot" style="background:${c}"></span>`;
+  const relColor=verdictColor(a,d);
+  const qColor=s?scoreColor(+s.quality_score):'var(--text-faint)';
+  const budget=cfg&&+cfg.budget_usd_month||0,mtdUsd=m?+m.mtd_usd:null;
+  const budgetPct=budget&&mtdUsd!=null?100*mtdUsd/budget:null;
+  const costColor=budgetPct==null?'var(--info)':budgetPct>=100?'var(--crit)':budgetPct>=70?'var(--warn)':'var(--ok)';
+  // board-style ranked takeaways: the ≤3 things that matter most, worst first, each a door
+  const perf=ENRICH.perf[a.name];
+  const tks=[];
+  if(a.status&&a.status!=='ok')tks.push(['bad','🔴',`App is <b>${sl(a.status)}</b> — probes are failing`,'operate']);
+  if(r&&r.verdict==='reject')tks.push(['bad','⚖️',`Would <b>not pass production review</b> — ${r.score_overall}/10${r.summary?`: “${esc(String(r.summary).slice(0,80))}…”`:''}`,'quality']);
+  if(s&&+s.findings_critical>0)tks.push(['bad','🛡',`<b>${s.findings_critical} critical</b> and ${s.findings_high} high security findings — scan ${s.quality_score}/100`,'quality']);
+  else if(s&&+s.findings_high>0)tks.push(['warn','🛡',`<b>${s.findings_high} high</b> security findings — scan ${s.quality_score}/100`,'quality']);
+  const nAl=alertCount(a.name);
+  if(nAl)tks.push(['warn','🔔',`<b>${nAl} alert${nAl>1?'s':''} firing</b> right now`,'timeline']);
+  if(budget&&mtdUsd!=null&&mtdUsd>=budget)tks.push(['bad','💸',`<b>Over budget</b> — $${fmt(mtdUsd,2)} of $${fmt(budget,0)}`,'cost']);
+  if(perf&&+perf.real_p95_ms>2500)tks.push(['warn','🐢',`Slow for users — real-traffic p95 <b>${fmt(perf.real_p95_ms)} ms</b>`,'requests']);
+  if(!tks.length){
+    if(!s||!r)tks.push(['warn','⏳','Not fully evaluated — scan or review has not run for this deployment yet','quality']);
+    else tks.push(['good','✅','All clear — reachable, reviewed and on budget','timeline']);
+  }
+  return `<div class="takeaways">${tks.slice(0,3).map(([cls,ic,txt,tab])=>
+    `<div class="tk ${cls}" onclick="goApp(CUR,'${tab}')"><span class="sev-ic"></span><span>${ic}</span><span>${txt}</span><span class="go">see it →</span></div>`).join('')}</div>
+  <div class="ovgrid">
+    <div class="ovcard"><h4>${dot(relColor)}Reliability</h4>
+      <div class="big">${fmt(a.uptime_24h,1)}<span style="font-size:15px;color:var(--text-muted)"> % reachable 24h</span></div>
+      <div class="rows">
+        <span>p95 <b>${perf&&perf.real_p95_ms!=null?fmt(perf.real_p95_ms)+' ms':'–'}</b> real · reach <b>${fmt(a.p95_ms)} ms</b> · errors 1h <b>${fmt(a.error_rate_1h,1)}%</b></span>
+        <span>journey <b>${j?(j.ok?'PASS':'FAIL')+' · '+esc(j.journey):'not configured'}</b></span>
+        <span>alerts firing <b style="color:${alertCount(a.name)?'var(--crit)':'inherit'}">${alertCount(a.name)}</b></span>
+      </div>${link('errors','Investigate errors')} &nbsp; ${link('uptime','Uptime detail')}</div>
+    <div class="ovcard"><h4>${dot(qColor)}Code quality</h4>
+      <div class="big" style="color:${qColor}">${s?s.quality_score:'–'}<span style="font-size:15px;color:var(--text-muted)"> /100 scan</span></div>
+      <div class="rows">
+        <span>critical/high findings <b>${s?+s.findings_critical+ +s.findings_high:'–'}</b> · policy <b>${s?(s.policy_violations??'–'):'–'}</b></span>
+        <span>review <b>${r?(r.verdict==='approve'?'✓':r.verdict==='reject'?'✗':'⚠')+' '+esc((r.verdict||'').replace(/_/g,' '))+' · '+(r.score_overall??'')+'/10':'–'}</b></span>
+        <span>dependency freshness <b>${s&&s.freshness_score!=null?s.freshness_score+'/100':'–'}</b></span>
+      </div>${link('quality','Scan & review')}</div>
+    <div class="ovcard"><h4>${dot(costColor)}Cost</h4>
+      <div class="big">${mtdUsd!=null?'$'+fmt(mtdUsd,2):'–'}<span style="font-size:15px;color:var(--text-muted)"> month to date</span></div>
+      <div class="rows">
+        <span>7 days <b>${c7&&c7.usd_7d!=null?'$'+fmt(c7.usd_7d,2):'–'}</b> · forecast 30d <b>${f?'$'+fmt(f.forecast_30d_usd,2):'–'}</b></span>
+        <span>budget <b>${budget?('$'+fmt(budget,0)+' ('+fmt(budgetPct,0)+'% burned)'):'not set'}</b></span>
+        <span>AI 7d <b>${c7?fmt(c7.tokens_7d):'–'}</b> tokens · <b>${c7?fmt(c7.ai_calls_7d):'–'}</b> calls</span>
+      </div>${link('cost','Cost detail')}</div>
+    <div class="ovcard"><h4>${dot('var(--info)')}Adoption</h4>
+      <div class="big">${u?fmt(u.peak_dau):'–'}<span style="font-size:15px;color:var(--text-muted)"> peak DAU · 7d</span></div>
+      <div class="rows">
+        <span>requests 7d <b>${u?fmt(u.requests_7d):'–'}</b></span>
+        <span>sessions 7d <b>${u?fmt(u.sessions_7d):'–'}</b></span>
+      </div>${link('adoption','Users & engagement')}</div>
+  </div>
+  ${d.events.length?`<div class="sec" style="margin-top:18px"><div class="cap">Recent activity</div>
+    ${d.events.map(e=>`<div style="display:flex;gap:10px;padding:5px 0;border-bottom:1px solid var(--grid);font-size:12.5px;align-items:baseline">
+      <span style="white-space:nowrap;color:var(--text-faint);font-variant-numeric:tabular-nums">${new Date(e.ts).toLocaleString([],{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})}</span>
+      <span>${EV_ICON[e.rule]||'•'}</span><span class="pill ${e.state==='firing'?'down':'ok'}" style="margin:0">${esc((e.state||'').toUpperCase())}</span>
+      <span class="mono" style="color:var(--text-muted)">${esc(e.rule)}</span><span style="flex:1">${esc(e.message)}</span></div>`).join('')}
+    <span class="ovlink" onclick="goApp(CUR,'timeline')">Full timeline →</span></div>`:''}`;
+}
+function renderUITests(rows){
+  if(!rows.length)return `<div class="empty">No browser runs recorded yet.<br>
+    <span style="font-size:12px">Run the <b>monitor-synthetics-browser</b> job (paused by default — serverless lacks browser system libraries; it records best-effort results either way). Artifacts land in the <span class="mono">ui_tests</span> volume of the monitor schema.</span></div>`;
+  const vol=rows.find(r=>r.artifact);
+  return `${vol?`<div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">Artifacts (result JSON + screenshot): <span class="mono">${esc(vol.artifact.split('/').slice(0,-2).join('/'))}/…</span> — browse via Catalog Explorer → Volumes.</div>`:''}
+  <table class="data"><tr><th>when</th><th>check</th><th>result</th><th>HTTP</th><th>latency</th><th>detail</th><th>artifact</th></tr>
+  ${rows.map(r=>{const pass=r.ok===true||r.ok==='true';return `<tr>
+    <td style="white-space:nowrap">${new Date(r.run_ts).toLocaleString([],{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})}</td>
+    <td>${esc(r.journey||'browser-smoke')}</td>
+    <td><span class="pill ${pass?'ok':'down'}" style="margin:0">${pass?'PASS':'FAIL'}</span></td>
+    <td>${r.status_code>0?r.status_code:'–'}</td>
+    <td>${r.latency_ms?fmt(r.latency_ms)+' ms':'–'}</td>
+    <td class="mono" style="font-size:10.5px;white-space:normal">${esc((r.detail||'').slice(0,110))}</td>
+    <td class="mono" style="font-size:10px;white-space:normal">${r.artifact?esc(r.artifact.split('ui_tests/')[1]||r.artifact):'–'}</td></tr>`;}).join('')}</table>`;
+}
+function renderUptime(a,sy){
+  return `<div class="chartbox"><div class="cap">Probe latency · 24 h · <span style="color:var(--crit)">●</span> failed checks</div>${bigChart(a.series)}</div>
+    <div class="meta" style="margin-top:10px"><span>checks <b>${a.checks_24h}</b></span><span>uptime <b>${fmt(a.uptime_24h,2)}%</b></span>
+    <span>p95 <b>${fmt(a.p95_ms)} ms</b></span><span data-tip="<b>Time to first byte</b><br>headers received vs full response — the streaming SLO a total-latency p95 hides">TTFB <b>${a.ttfb_ms!=null?fmt(a.ttfb_ms)+' ms':'–'}</b></span>
+    <span>last <b>${a.last?fmt(a.last.ms)+' ms (HTTP '+a.last.code+')':'–'}</b></span>
+    <span>compute <b>${esc(a.compute_state||'–')}</b></span></div>
+    <div class="sec" style="margin-top:22px;border-top:1px solid var(--grid);padding-top:14px"><div class="cap" style="font-size:13px">Synthetic journeys</div>${renderSynthetics(sy)}</div>`;
+}
+function renderTracesCombined(traces,ag){
+  const agent=ag&&ag.experiment?`<div class="sec"><div class="cap" style="font-size:13px">Agent runs (MLflow)</div>${renderAgentList(ag)}</div>
+    <div class="sec" style="margin-top:22px;border-top:1px solid var(--grid);padding-top:14px"><div class="cap" style="font-size:13px">HTTP request traces</div>`:'<div class="sec">';
+  return `${agent}${renderTraces(traces)}</div>`;
+}
+
+// ------------------------------------------------------------------ charts
+
+function bigChart(series,H=160){
+  // pixel-crisp at actual container width — no viewBox stretching (thin line, small text)
+  const box=$('#tabBody');
+  const W=Math.max(560,Math.min(1400,(box?box.clientWidth:980)-60));
+  const P=34;
+  if(!series||!series.length)return `<svg width="${W}" height="${H}" style="width:${W}px;height:${H}px"></svg>`;
+  const t0=series[0][0],t1=series[series.length-1][0]||t0+1;
+  const lat=series.map(p=>p[3]),max=Math.max(...lat,1);
+  const x=t=>P+((t-t0)/Math.max(t1-t0,1))*(W-P-8);
+  const y=v=>H-18-(v/max)*(H-34);
+  const pts=series.map(p=>`${x(p[0]).toFixed(1)},${y(p[3]).toFixed(1)}`).join(' ');
+  const fails=series.filter(p=>!p[1]).map(p=>`<circle cx="${x(p[0]).toFixed(1)}" cy="${y(p[3]).toFixed(1)}" r="3" fill="var(--crit)"><title>HTTP ${p[2]} · ${p[3]} ms</title></circle>`).join('');
+  const gridlines=[0.25,0.5,0.75,1].map(f=>{const v=max*f;return `<line x1="${P}" x2="${W-8}" y1="${y(v)}" y2="${y(v)}" stroke="var(--grid)"/><text x="${P-4}" y="${y(v)+3}" text-anchor="end" font-size="9" fill="var(--text-faint)">${v>=1000?(v/1000).toFixed(1)+'s':v.toFixed(0)}</text>`}).join('');
+  const nT=Math.min(6,series.length);
+  const tmark=Array.from({length:nT},(_,i)=>t0+(t1-t0)*i/(nT-1||1)).map(t=>`<text x="${x(t)}" y="${H-4}" text-anchor="middle" font-size="9" fill="var(--text-faint)">${new Date(t*1000).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</text>`).join('');
+  return `<svg width="${W}" height="${H}" style="width:${W}px;height:${H}px;max-width:100%">${gridlines}<polyline points="${pts}" fill="none" stroke="var(--info)" stroke-width="1.6"/>${fails}${tmark}</svg>`;
+}
+function barLine(rows,W=860,H=150){
+  if(!rows.length)return '<div class="loading">no requests in window</div>';
+  const P=34,n=rows.length,bw=Math.max(2,(W-P-8)/n-2);
+  const max=Math.max(...rows.map(r=>+r.requests),1);
+  const y=v=>H-16-(v/max)*(H-30);
+  const bars=rows.map((r,i)=>{const x=P+i*((W-P-8)/n);const req=+r.requests,err=+r.errors;
+    return `<rect x="${x}" y="${y(req)}" width="${bw}" height="${H-16-y(req)}" rx="2" fill="var(--info)"><title>${new Date(r.ts).toLocaleTimeString()} · ${req} req · ${err} err</title></rect>`+
+      (err?`<rect x="${x}" y="${y(err)}" width="${bw}" height="${H-16-y(err)}" rx="2" fill="var(--crit)"></rect>`:'');}).join('');
+  return `<svg viewBox="0 0 ${W} ${H}"><text x="${P-4}" y="${y(max)+4}" text-anchor="end" font-size="9" fill="var(--text-faint)">${max}</text>
+    <line x1="${P}" x2="${W-8}" y1="${H-16}" y2="${H-16}" stroke="var(--grid)"/>${bars}</svg>`;
+}
+function latLines(rows,W=860,H=150){
+  if(!rows.length)return '';
+  const P=38,max=Math.max(...rows.map(r=>+r.p95_ms||0),1);
+  const x=i=>P+i*((W-P-8)/Math.max(rows.length-1,1)),y=v=>H-16-(v/max)*(H-30);
+  const line=(k,color,w)=>`<polyline fill="none" stroke="${color}" stroke-width="${w}" points="${rows.map((r,i)=>`${x(i)},${y(+r[k]||0)}`).join(' ')}"/>`;
+  return `<div class="legend"><span><i style="background:var(--info)"></i>p50</span><span><i style="background:var(--brand)"></i>p95</span></div>
+    <svg viewBox="0 0 ${W} ${H}"><text x="${P-4}" y="${y(max)+4}" text-anchor="end" font-size="9" fill="var(--text-faint)">${max>=1000?(max/1000).toFixed(1)+'s':max+'ms'}</text>
+    <line x1="${P}" x2="${W-8}" y1="${H-16}" y2="${H-16}" stroke="var(--grid)"/>${line('p50_ms','var(--info)',1.6)}${line('p95_ms','var(--brand)',1.6)}</svg>`;
+}
+function dayBars(rows,key,color,fmtV,W=860,H=140){
+  const vals=rows.map(r=>+r[key]||0),max=Math.max(...vals,0.0001);
+  const P=46,n=rows.length,bw=Math.max(3,(W-P-8)/Math.max(n,1)-3);
+  const y=v=>H-18-(v/max)*(H-32);
+  return `<svg viewBox="0 0 ${W} ${H}"><text x="${P-4}" y="${y(max)+4}" text-anchor="end" font-size="9" fill="var(--text-faint)">${fmtV(max)}</text>
+    <line x1="${P}" x2="${W-8}" y1="${H-18}" y2="${H-18}" stroke="var(--grid)"/>
+    ${rows.map((r,i)=>{const x=P+i*((W-P-8)/Math.max(n,1));const v=+r[key]||0;
+      return `<rect x="${x}" y="${y(v)}" width="${bw}" height="${Math.max(0,H-18-y(v))}" rx="2" fill="${color}"><title>${r.date} · ${fmtV(v)}</title></rect>`}).join('')}
+    ${rows.length?`<text x="${P}" y="${H-5}" font-size="9" fill="var(--text-faint)">${rows[0].date}</text><text x="${W-8}" y="${H-5}" text-anchor="end" font-size="9" fill="var(--text-faint)">${rows[rows.length-1].date}</text>`:''}</svg>`;
+}
+
+// --------------------------------------------------------------- renderers
+function renderRequests(d,h){
+  const total=d.timeline.reduce((s,r)=>s+ +r.requests,0),errs=d.timeline.reduce((s,r)=>s+ +r.errors,0);
+  return `<div class="meta" style="margin:6px 0"><span>requests <b>${fmt(total)}</b></span><span>errors <b>${fmt(errs)}</b></span><span>error rate <b>${total?fmt(100*errs/total,2):'–'}%</b></span><span>window <b>${h} h</b></span></div>
+    <div class="grid2">
+    <div class="chartbox"><div class="cap">Requests (<span style="color:var(--crit)">■</span> errors) · otel_spans server spans</div>${barLine(d.timeline)}</div>
+    <div class="chartbox"><div class="cap">Latency percentiles</div>${latLines(d.timeline)}</div></div>
+    <table class="data"><tr><th>route</th><th>requests</th><th>errors</th><th>avg ms</th><th>p95 ms</th></tr>
+    ${d.routes.map(r=>`<tr><td class="mono">${esc(r.route)}</td><td>${fmt(r.requests)}</td><td>${+r.errors?`<span style="color:var(--crit)">${fmt(r.errors)}</span>`:'0'}</td><td>${fmt(r.avg_ms)}</td><td>${fmt(r.p95_ms)}</td></tr>`).join('')}</table>`;
+}
+function renderErrors(d){
+  const fr=d.failed_requests,el=d.error_logs,gr=d.groups||[];
+  if(!fr.length&&!el.length&&!gr.length)return '<div class="loading">no errors in window 🎉</div>';
+  const groups=gr.length?`<div class="cap" style="margin:8px 0 0;font-size:12px;color:var(--text-muted)">Error groups (fingerprinted) · ${gr.length}</div>
+    <table class="data"><tr><th>fingerprint</th><th>count</th><th>first seen</th><th>last seen</th><th>sample</th></tr>
+    ${gr.map(g=>`<tr><td class="mono">${esc(g.fingerprint)}</td><td><b>${fmt(g.occurrences)}</b></td>
+      <td style="white-space:nowrap">${new Date(g.first_seen).toLocaleString([],{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})}</td>
+      <td style="white-space:nowrap">${ago(new Date(g.last_seen).getTime()/1000)}</td>
+      <td class="mono" style="font-size:10.5px" title="${esc(g.sample)}">${esc((g.sample||'').slice(0,140))}</td></tr>`).join('')}</table>`:'';
+  return `${groups}${fr.length?`<div class="cap" style="margin:8px 0 0;font-size:12px;color:var(--text-muted)">Failed requests · ${fr.length}</div>
+    <table class="data"><tr><th>time</th><th>span</th><th>ms</th><th>detail</th><th>trace</th></tr>
+    ${fr.map(r=>`<tr class="click" onclick="openTrace('${esc(r.trace_id)}')"><td>${new Date(r.time).toLocaleTimeString()}</td><td class="mono">${esc(r.name)}</td><td>${fmt(r.duration_ms)}</td><td class="mono">${esc((r.message||('HTTP '+(r.http_status||'?'))).slice(0,90))}</td><td class="mono">${esc((r.trace_id||'').slice(0,8))}…</td></tr>`).join('')}</table>`:''}
+  ${el.length?`<div class="cap" style="margin:14px 0 0;font-size:12px;color:var(--text-muted)">Error logs · ${el.length}</div>
+    <table class="data"><tr><th>time</th><th>sev</th><th>message</th></tr>
+    ${el.map(r=>`<tr><td>${new Date(r.time).toLocaleTimeString()}</td><td><span class="chip ${esc(r.severity_text||'ERROR')}">${esc(r.severity_text||'ERR')}</span></td><td class="mono">${esc(String(r.body||'').slice(0,260))}</td></tr>`).join('')}</table>`:''}`;
+}
+function renderLogs(logs){
+  if(!logs.length)return '<div class="loading">no logs in window</div>';
+  return `<table class="data"><tr><th>time</th><th>sev</th><th>message</th></tr>
+    ${logs.map(r=>`<tr><td style="white-space:nowrap">${new Date(r.time).toLocaleTimeString()}</td><td><span class="chip ${esc(r.severity)}">${esc(r.severity)}</span></td><td class="mono" title="${esc(String(r.body||''))}">${esc(String(r.body||'').slice(0,240))}</td></tr>`).join('')}</table>`;
+}
+function renderTraces(traces){
+  if(!traces.length)return '<div class="loading">no traces in window — traces need the app instrumented with opentelemetry-instrument</div>';
+  return `<table class="data"><tr><th>time</th><th>operation</th><th>route</th><th>ms</th><th>status</th></tr>
+    ${traces.map(r=>`<tr class="click" onclick="openTrace('${esc(r.trace_id)}')"><td style="white-space:nowrap">${new Date(r.time).toLocaleTimeString()}</td><td class="mono">${esc(r.name)}</td><td class="mono">${esc(r.route)}</td><td>${fmt(r.duration_ms)}</td><td><span class="pill ${r.status==='error'?'down':'ok'}">${r.status.toUpperCase()}</span></td></tr>`).join('')}</table>`;
+}
+async function openTrace(tid){
+  const body=$('#tabBody');body.innerHTML='<div class="loading">loading trace…</div>';
+  try{
+    const d=await get('api/traces/'+encodeURIComponent(tid));
+    if(!d.spans.length){body.innerHTML='<div class="loading">trace not found (may have rotated)</div>';return}
+    const t0=Math.min(...d.spans.map(s=>+s.start_time_unix_nano));
+    const t1=Math.max(...d.spans.map(s=>+s.end_time_unix_nano));
+    const span=s=>{const l=100*(+s.start_time_unix_nano-t0)/(t1-t0||1),w=Math.max(0.5,100*(+s.end_time_unix_nano-+s.start_time_unix_nano)/(t1-t0||1));
+      return `<div class="row"><div class="nm" style="padding-left:${depthOf(s,d.spans)*12}px" title="${esc(s.name)}">${esc(s.name)}</div>
+        <div class="track"><div class="bar ${s.status==='error'?'error':''}" style="left:${l}%;width:${w}%;${s.status==='error'?'background:var(--crit)':''}"></div></div>
+        <div class="dur">${fmt((+s.end_time_unix_nano-+s.start_time_unix_nano)/1e6,1)} ms</div></div>`;};
+    body.innerHTML=`<button class="back" onclick="loadTab('traces')">← back to traces</button>
+      <div style="font-family:var(--mono);font-size:11px;color:var(--text-faint)">trace ${esc(tid)} · ${d.spans.length} spans · ${fmt((t1-t0)/1e6,1)} ms</div>
+      <div class="wf">${d.spans.map(span).join('')}</div>
+      ${d.logs.length?`<div class="cap" style="margin:12px 0 0;font-size:12px;color:var(--text-muted)">Correlated logs</div>${renderLogs(d.logs)}`:''}`;
+  }catch(e){body.innerHTML=`<div class="errbox">${esc(e.message)}</div>`;}
+}
+function depthOf(s,all){let d=0,cur=s,seen=0;const byId={};all.forEach(x=>byId[x.span_id]=x);
+  while(cur&&cur.parent_span_id&&byId[cur.parent_span_id]&&seen++<20){d++;cur=byId[cur.parent_span_id];}return d;}
+
+function renderAgentList(d){
+  if(!d.experiment)return '<div class="loading">no MLflow experiment bound to this app — bind an <code>experiment</code> resource and log traces (docs/INSTRUMENTATION.md L3) to light this up</div>';
+  if(!d.traces.length)return '<div class="loading">experiment bound, no agent traces yet — traffic every ~5 min generates them</div>';
+  return `<div style="font-size:11.5px;color:var(--text-muted);margin:8px 0">MLflow experiment ${esc(d.experiment)} · newest first · click a trace for the unified OTel + agent view</div>
+    <table class="data"><tr><th>time</th><th>agent</th><th>state</th><th>ms</th><th>request</th><th>req id</th></tr>
+    ${d.traces.map(t=>`<tr class="click" onclick="openAgentTrace('${esc(t.trace_id)}')">
+      <td style="white-space:nowrap">${t.request_time?new Date(t.request_time).toLocaleTimeString():'–'}</td>
+      <td>${esc(t.tags.agent||'–')}</td>
+      <td><span class="pill ${/OK/i.test(t.state)?'ok':'down'}">${esc(t.state||'?')}</span></td>
+      <td>${fmt(t.duration_ms)}</td>
+      <td class="mono" style="font-size:10.5px" title="${esc(t.response_preview)}">${esc(t.preview)}</td>
+      <td class="mono">${esc((t.client_request_id||'').slice(0,8))}</td></tr>`).join('')}</table>`;
+}
+const TYPE_COLOR={LLM:'var(--brand)',CHAT_MODEL:'var(--brand)',TOOL:'var(--teal)',AGENT:'var(--purple)',RETRIEVER:'var(--warn)'};
+async function openAgentTrace(tid){
+  const body=$('#tabBody');body.innerHTML='<div class="loading">assembling unified trace…</div>';
+  try{
+    const d=await get(`api/apps/${encodeURIComponent(CUR)}/agent-traces/${encodeURIComponent(tid)}`);
+    const all=(d.otel_spans||[]).filter(s=>+s.start_time_unix_nano>0).sort((a,b)=>a.start_time_unix_nano-b.start_time_unix_nano);
+    if(!all.length){body.innerHTML='<div class="loading">no correlated OTel spans (yet) — Zerobus delivery can lag ~a minute behind MLflow</div>';return}
+    const t0=Math.min(...all.map(s=>+s.start_time_unix_nano)),t1=Math.max(...all.map(s=>+s.end_time_unix_nano));
+    const services=[...new Set(all.map(s=>s.service_name))];
+    const row=s=>{
+      const l=100*(+s.start_time_unix_nano-t0)/(t1-t0||1),w=Math.max(.5,100*(+s.end_time_unix_nano-+s.start_time_unix_nano)/(t1-t0||1));
+      const agent=!!s.span_type;
+      const color=s.status==='error'?'var(--crit)':agent?(TYPE_COLOR[s.span_type]||'var(--purple)'):'var(--info)';
+      const chip=agent?`<span class="chip INFO" style="background:var(--purple-bg);color:var(--purple)">${esc(s.span_type)}</span>`
+                      :`<span class="chip INFO">${esc((s.service_name||'otel').replace('monitor-demo-',''))}</span>`;
+      const tok=(+s.in_tokens||+s.out_tokens)?` · ${fmt(s.in_tokens)}→${fmt(s.out_tokens)} tok`:'';
+      return `<div class="row"><div class="nm" style="padding-left:${depthOf(s,all)*12}px" title="${esc(s.name)}${esc(tok)}">${chip} ${esc(s.name)}</div>
+        <div class="track"><div class="bar" style="left:${l}%;width:${w}%;background:${color}"></div></div>
+        <div class="dur">${fmt((+s.end_time_unix_nano-+s.start_time_unix_nano)/1e6,1)} ms</div></div>`;};
+    body.innerHTML=`<button class="back" onclick="loadTab('traces')">← back to traces</button>
+      <div style="font-size:12px;margin:4px 0"><b>Unified trace</b> — MLflow <code>${esc(tid.slice(0,18))}…</code> ⟷ OTel, joined on trace ids + <code>client_request_id=${esc((d.client_request_id||'?').slice(0,12))}</code>
+        ${d.mlflow_url?` · <a href="${esc(d.mlflow_url)}" target="_blank">open in MLflow ↗</a>`:''}</div>
+      <div class="legend"><span><i style="background:var(--info)"></i>app spans${services.length>1?' · '+services.length+' services':''}</span>
+        <span><i style="background:var(--brand)"></i>LLM</span><span><i style="background:var(--teal)"></i>TOOL</span>
+        <span><i style="background:var(--purple)"></i>AGENT</span><span><i style="background:var(--crit)"></i>error</span></div>
+      <div style="font-family:var(--mono);font-size:11px;color:var(--text-faint)">${all.length} spans · ${fmt((t1-t0)/1e6,1)} ms · ${esc(d.mlflow.info.state)} · services: ${esc(services.join(', ')||CUR)} · "${esc(d.mlflow.info.preview)}"</div>
+      <div class="wf">${all.map(row).join('')}</div>
+      ${d.logs.length?`<div class="cap" style="margin:12px 0 0;font-size:12px;color:var(--text-muted)">Correlated logs (same OTel trace)</div>${renderLogs(d.logs)}`:''}`;
+  }catch(e){body.innerHTML=`<div class="errbox">${esc(e.message)}</div>`;}
+}
+
+function scoreColor(s){return s>=80?'var(--ok)':s>=60?'var(--warn)':'var(--crit)'}
+const BEHIND_RANK={major:0,minor:1,patch:2,unpinned:3,unknown:4,unchecked:5,current:6};
+function depBadge(b){
+  const cls=b==='major'?'ERROR':b==='minor'?'WARN':b==='current'||b==='patch'?'INFO':'UNKNOWN';
+  const label=b==='current'?'up to date':b==='patch'?'patch behind':b==='minor'?'minor behind':b==='major'?'MAJOR behind':b;
+  return `<span class="chip ${cls}">${label}</span>`;
+}
+function depTable(depsJson){
+  let deps=[];try{deps=JSON.parse(depsJson||'[]')}catch(e){}
+  if(!deps.length||deps[0].behind===undefined)return '';  // pre-report scans: no table
+  deps.sort((a,b)=>(b.vulns?.length||0)-(a.vulns?.length||0)||BEHIND_RANK[a.behind]-BEHIND_RANK[b.behind]||a.name.localeCompare(b.name));
+  const shown=deps.slice(0,60);
+  return `<div class="cap" style="margin:14px 0 0;font-size:12px;color:var(--text-muted)">Packages · ${deps.length}
+      (${deps.filter(x=>x.eco==='npm').length} npm) · installed vs latest, CVEs from OSV.dev</div>
+    <table class="data"><tr><th>package</th><th>installed</th><th>latest</th><th>freshness</th><th>vulnerabilities</th></tr>
+    ${shown.map(x=>`<tr>
+      <td><b>${esc(x.name)}</b> <span class="chip INFO" style="background:var(--grid);color:var(--text-muted)">${esc(x.eco)}</span></td>
+      <td class="mono">${esc(x.version||'unpinned')}</td><td class="mono">${esc(x.latest||'–')}</td>
+      <td>${depBadge(x.behind)}</td>
+      <td>${x.vulns&&x.vulns.length?`<span class="chip ERROR">${x.vulns.length}</span> <span class="mono" style="font-size:10.5px">${x.vulns.map(esc).join(' ')}</span>`:'<span style="color:var(--text-faint)">none known</span>'}</td>
+    </tr>`).join('')}</table>
+    ${deps.length>shown.length?`<div style="font-size:11.5px;color:var(--text-faint);margin-top:4px">…and ${deps.length-shown.length} more</div>`:''}`;
+}
+function renderSecurity(d){
+  if(!d.scan)return '<div class="loading">not scanned yet — the hourly monitor-inventory-scan job scans each new deployment (or hit Sync fleet)</div>';
+  const s=d.scan,score=+s.quality_score;
+  const sevs=['critical','high','medium','low'].map(k=>`<span class="chip ${k==='critical'||k==='high'?'ERROR':k==='medium'?'WARN':'INFO'}">${k} ${s['findings_'+k]}</span>`).join(' ');
+  return `<div style="display:flex;align-items:center;gap:16px;margin:10px 0">
+      <div style="font-size:40px;font-weight:700;color:${scoreColor(score)}">${score}</div>
+      <div><div style="font-weight:600">quality score</div>
+      <div style="font-size:12px;color:var(--text-muted)">scanned ${new Date(s.scanned_at).toLocaleString()} · deployment ${esc((s.deployment_id||'').slice(0,8))}…</div>
+      <div style="margin-top:4px">${sevs}</div></div></div>
+    <div class="meta" style="margin:8px 0 4px"><span>files <b>${s.files}</b></span><span>py loc <b>${fmt(s.py_loc)}</b></span>
+      <span>deps <b>${s.deps}</b> (${s.deps_pinned} pinned)</span>
+      <span>freshness <b>${s.freshness_score!=null?s.freshness_score+'/100':'–'}</b></span>
+      <span>tests <b>${s.has_tests==='true'?'yes':'no'}</b></span><span>readme <b>${s.has_readme==='true'?'yes':'no'}</b></span></div>
+    ${depTable(s.deps_json)}
+    ${d.findings.length?`<table class="data"><tr><th>sev</th><th>type</th><th>finding</th><th>where</th></tr>
+      ${d.findings.map(f=>`<tr><td><span class="chip ${f.severity==='critical'||f.severity==='high'?'ERROR':f.severity==='medium'?'WARN':'INFO'}">${esc(f.severity)}</span></td>
+        <td>${esc(f.kind)}</td><td><b>${esc(f.title)}</b><br><span class="mono" style="font-size:11px;color:var(--text-muted)">${esc(f.detail||'')}</span></td>
+        <td class="mono">${esc(f.file||'')}${f.line?':'+f.line:''}</td></tr>`).join('')}</table>`
+      :'<div class="loading">no findings 🎉</div>'}`;
+}
+function verdictPill(v){const cls=v==='approve'?'ok':v==='approve_with_conditions'?'degraded':'down';
+  return `<span class="pill ${cls}" style="margin:0">${esc((v||'?').replace(/_/g,' ').toUpperCase())}</span>`}
+function meter(label,v){const val=v==null?0:+v;
+  return `<div style="display:grid;grid-template-columns:110px 1fr 26px;gap:8px;align-items:center;font-size:12px;margin:3px 0">
+    <span style="color:var(--text-muted)">${label}</span>
+    <div style="height:8px;background:var(--grid);border-radius:4px"><div style="width:${val*10}%;height:8px;border-radius:4px;background:${scoreColor(val*10)}"></div></div>
+    <b>${v==null?'–':val}</b></div>`}
+async function requestReview(){
+  const b=document.getElementById('reqReview');b.textContent='Queued…';b.disabled=true;
+  try{await fetch('api/actions/review/'+encodeURIComponent(CUR),{method:'POST'});b.textContent='Review running — check back in ~2 min';}
+  catch(e){b.textContent='Failed to queue';b.disabled=false;}
+}
+function renderReview(r){
+  const btn=`<button class="action" id="reqReview" onclick="requestReview()" style="margin:10px 0">Request fresh review</button>`;
+  if(!r)return `<div class="loading">no code review yet — the monitor-llm-review job reviews each new deployment daily.</div>${btn}`;
+  let strengths=[],findings=[];
+  try{strengths=JSON.parse(r.strengths_json||'[]');findings=JSON.parse(r.findings_json||'[]')}catch(e){}
+  return `<div style="display:flex;align-items:center;gap:14px;margin:10px 0">
+      <div style="font-size:40px;font-weight:700;color:${scoreColor((+r.score_overall||0)*10)}">${r.score_overall??'–'}</div>
+      <div>${verdictPill(r.verdict)}
+        <div style="font-size:12px;color:var(--text-muted);margin-top:4px">by <b>${esc(r.model)}</b> · ${new Date(r.reviewed_at).toLocaleString()} · ${r.files_reviewed} files · ${fmt(r.input_tokens)}→${fmt(r.output_tokens)} tokens</div>
+      </div></div>
+    <p style="font-size:13px;margin:8px 0 12px">${esc(r.summary||'')}</p>
+    <div class="grid2"><div style="max-width:460px">${meter('security',r.score_security)}${meter('reliability',r.score_reliability)}${meter('maintainability',r.score_maintainability)}${meter('cost efficiency',r.score_cost)}${meter('monitor',r.score_monitoring)}</div>
+    <div>${strengths.length?`<div class="cap" style="font-size:12px;color:var(--text-muted)">Strengths</div>
+      <ul style="font-size:12.5px;padding-left:18px">${strengths.map(s=>`<li>${esc(s)}</li>`).join('')}</ul>`:''}</div></div>
+    ${findings.length?`<div class="cap" style="margin:14px 0 0;font-size:12px;color:var(--text-muted)">Findings · ${findings.length}</div>
+      <table class="data"><tr><th>sev</th><th>area</th><th>finding</th></tr>
+      ${findings.map(f=>`<tr><td><span class="chip ${f.severity==='critical'||f.severity==='high'?'ERROR':f.severity==='medium'?'WARN':'INFO'}">${esc(f.severity)}</span></td>
+        <td>${esc(f.area||'')}</td><td><b>${esc(f.title||'')}</b><br><span style="font-size:11.5px;color:var(--text-muted)">${esc(f.recommendation||'')}</span></td></tr>`).join('')}</table>`:''}
+    ${btn}`;
+}
+function renderCost(dd){
+  const daily=dd.daily;
+  if(!daily||!daily.length)return '<div class="loading">no cost rows yet — the daily monitor-cost-rollup job fills costs_daily from system.billing.usage (billing data lags a few hours)</div>';
+  const usd=daily.reduce((s,r)=>s+(+r.dbu_usd||0),0),tok=daily.reduce((s,r)=>s+(+r.ai_input_tokens||0)+(+r.ai_output_tokens||0),0);
+  const f=dd.forecast,budget=+dd.budget||0,mtd=+dd.mtd_usd||0;
+  const budgetHtml=budget?`<div class="chartbox" style="margin-bottom:8px"><div class="cap">Budget — month to date</div>
+      <div style="display:flex;align-items:center;gap:12px"><div style="flex:1;height:14px;background:var(--grid);border-radius:7px;overflow:hidden">
+        <div style="width:${Math.min(100,100*mtd/budget)}%;height:14px;background:${mtd>=budget?'var(--crit)':mtd>=0.7*budget?'var(--warn)':'var(--ok)'}"></div></div>
+      <b>$${fmt(mtd,2)} / $${fmt(budget,2)}</b> (${fmt(100*mtd/budget,0)}%)</div>
+      <div style="font-size:11px;color:var(--text-faint);margin-top:4px">alerts fire at 70% and 100% (budget_burn) · set the budget on the Ops tab</div></div>`:'';
+  const fHtml=f?`<span>forecast 30 d <b>$${fmt(f.forecast_30d_usd,2)}</b> <span style="color:var(--text-faint)">(linear, ${f.days_observed} d observed)</span></span>`:'';
+  return `<div class="meta" style="margin:6px 0"><span>30 d compute <b>$${fmt(usd,2)}</b></span><span>AI tokens <b>${fmt(tok)}</b></span><span>AI calls <b>${fmt(daily.reduce((s,r)=>s+(+r.ai_calls||0),0))}</b></span>${fHtml}</div>
+    ${budgetHtml}
+    <div class="grid2">
+    <div class="chartbox"><div class="cap">App compute $ / day · system.billing.usage × list_prices</div>${dayBars(daily,'dbu_usd','var(--info)',v=>'$'+v.toFixed(2))}</div>
+    <div class="chartbox"><div class="cap">AI tokens / day · gen_ai.* span attributes (own telemetry)</div>${dayBars(daily,'ai_input_tokens','var(--brand)',v=>fmt(v))}</div></div>
+    <table class="data"><tr><th>date</th><th>DBUs</th><th>$</th><th>AI calls</th><th>tokens in/out</th></tr>
+    ${daily.slice().reverse().map(r=>`<tr><td>${r.date}</td><td>${fmt(r.dbus,2)}</td><td>${r.dbu_usd==null?'–':'$'+fmt(r.dbu_usd,2)}</td><td>${fmt(r.ai_calls)}</td><td>${fmt(r.ai_input_tokens)} / ${fmt(r.ai_output_tokens)}</td></tr>`).join('')}</table>
+    <div style="font-size:11px;color:var(--text-faint);margin-top:8px">Per-app AI $ needs AI-Gateway usage tracking on the endpoint; pay-per-token FMAPI endpoints don't log it by default — tokens above come from the app's own gen_ai span attributes.</div>`;
+}
+async function runJourneysNow(){
+  const b=document.getElementById('runJn');b.textContent='Running…';b.disabled=true;
+  try{await fetch('api/actions/run-journeys',{method:'POST'});loadTab('operate');}
+  catch(e){b.textContent='failed';b.disabled=false;}
+}
+function renderSynthetics(d){
+  const btn=`<button class="action" id="runJn" onclick="runJourneysNow()" style="margin:10px 0">Run journeys now</button>`;
+  const j=d.live;
+  let liveHtml;
+  if(!j){liveHtml=`<div class="loading">no journey result yet — the in-app runner executes journeys.json every ${Math.round((d.interval_s||1800)/60)} min</div>`;}
+  else{
+    liveHtml=`<div style="border:1px solid var(--border);border-radius:8px;padding:12px;margin:10px 0">
+      <div style="font-weight:600;font-size:13px">${esc(j.journey)} <span class="pill ${j.ok?'ok':'down'}">${j.ok?'PASS':'FAIL'}</span>
+        <span style="font-weight:400;font-size:11.5px;color:var(--text-muted)">· ${ago(j.ts)} · budget ${j.budget_ms} ms ${j.within_budget?'met':'<b style="color:var(--warn)">exceeded</b>'}</span></div>
+      <table class="data"><tr><th>step</th><th>ok</th><th>code</th><th>ms</th><th>detail</th></tr>
+      ${j.steps.map(s=>`<tr><td class="mono">${esc(s.name)}</td><td>${s.ok?'✓':'<span style="color:var(--crit)">✗</span>'}</td>
+        <td>${s.code}</td><td>${fmt(s.ms)}</td><td class="mono" style="font-size:10.5px">${esc(s.detail||'')}</td></tr>`).join('')}</table></div>`;
+  }
+  const br=(d.browser||[]);
+  return `${liveHtml}${btn}
+    ${br.length?`<div class="cap" style="margin:12px 0 0;font-size:12px;color:var(--text-muted)">Browser-mode checks (Playwright job)</div>
+    <table class="data"><tr><th>time</th><th>ok</th><th>code</th><th>ms</th><th>detail</th></tr>
+    ${br.slice(0,20).map(r=>`<tr><td style="white-space:nowrap">${new Date(r.run_ts).toLocaleString([],{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})}</td>
+      <td>${r.ok==='true'?'✓':'<span style="color:var(--crit)">✗</span>'}</td><td>${r.status_code}</td><td>${fmt(r.latency_ms)}</td>
+      <td class="mono" style="font-size:10.5px">${esc(r.detail||'')}</td></tr>`).join('')}</table>`
+    :'<div style="font-size:11px;color:var(--text-faint);margin-top:6px">Browser-mode (Playwright) job is paused — serverless lacks browser system deps; see the DAB container pattern in the docs for workspaces with DCS.</div>'}`;
+}
+
+// ------------------------------------------------------------------ alerts
+function sevChip(s){return `<span class="chip ${s==='critical'||s==='high'?'ERROR':s==='warning'||s==='medium'?'WARN':'INFO'}">${esc(s)}</span>`}
+// rebuild.md: every alert carries its next best action
+const NBA={
+  journey_failed:{label:'Run journeys',run:x=>nbaPost('api/actions/run-journeys')},
+  critical_findings:{label:'Re-scan fleet',run:x=>nbaPost('api/actions/refresh-inventory')},
+  policy_violation:{label:'Re-scan fleet',run:x=>nbaPost('api/actions/refresh-inventory')},
+  review_reject:{label:'Re-review app',run:x=>nbaPost('api/actions/review/'+encodeURIComponent(x.app))},
+  budget_burn:{label:'Budget settings',nav:x=>goApp(x.app,'operate')},
+  cost_spike:{label:'Cost detail',nav:x=>goApp(x.app,'cost')},
+  anomaly_latency:{label:'Open traces',nav:x=>goApp(x.app,'traces')},
+  anomaly_traffic:{label:'Open requests',nav:x=>goApp(x.app,'requests')},
+  app_stopped:{label:'Start app',run:x=>nbaPost('api/actions/appctl/'+encodeURIComponent(x.app)+'/start')},
+  down:{label:'Restart app',run:x=>nbaPost('api/actions/appctl/'+encodeURIComponent(x.app)+'/start')},
+  app_down:{label:'Restart app',run:x=>nbaPost('api/actions/appctl/'+encodeURIComponent(x.app)+'/start')},
+  permission_drift:{label:'Review access',nav:x=>goApp(x.app,'operate')},
+};
+function nbaOf(rule){return NBA[rule]||(String(rule).startsWith('budget')?NBA.budget_burn:String(rule).startsWith('anomaly_l')?NBA.anomaly_latency:String(rule).startsWith('anomaly')?NBA.anomaly_traffic:null)}
+async function nbaPost(url){const r=await fetch(url,{method:'POST'});if(!r.ok)throw new Error('HTTP '+r.status)}
+async function nbaClick(ev,rule,app){
+  ev.stopPropagation();
+  const a=nbaOf(rule);if(!a)return;
+  if(a.nav){a.nav({app});return}
+  const btn=ev.target;const old=btn.textContent;btn.textContent='Running...';btn.disabled=true;
+  try{await a.run({app});btn.textContent='triggered ✓';}
+  catch(e){btn.textContent='failed';}
+  setTimeout(()=>{btn.textContent=old;btn.disabled=false;},4000);
+}
+function nbaBtn(x){const a=nbaOf(x.rule);return a?`<button class="nba" onclick="nbaClick(event,'${esc(x.rule)}','${esc(x.app)}')">${a.label}</button>`:''}
+function alertsBodyHtml(){
+  const a=ALERTS||{active:[],recent:[]};
+  return `
+    <div style="font-size:12.5px;color:var(--text-muted);margin-bottom:12px">probe rules evaluated in-app every minute · deep rules (cost spikes, findings, review rejects, failed journeys) emitted by jobs · SQL alert emails via Databricks</div>
+    <div class="kpis" style="grid-template-columns:repeat(auto-fit,minmax(165px,1fr))">
+      ${kpi('Active alerts',a.active.length,'', a.active.length?'needs eyes':'all quiet',a.active.length?'':'na')}
+      ${kpi('Alert history 3 d',(a.recent||[]).length,'','fired + resolved')}
+    </div>
+    ${a.active.length?`<section><h2>Active alerts</h2><table class="data" style="background:var(--card)"><tr><th>sev</th><th>rule</th><th>app</th><th>message</th><th>next best action</th></tr>
+      ${a.active.map(x=>`<tr class="click" onclick="goApp('${esc(x.app)}',ALERT_TAB['${esc(x.rule)}']||'overview')"><td>${sevChip(x.severity)}</td><td class="mono">${esc(x.rule)}</td><td><b>${esc(x.app)}</b></td><td style="font-size:12px">${esc(x.message)}</td><td>${nbaBtn(x)}</td></tr>`).join('')}</table></section>`:''}
+    <section><h2>Alert history · 3 days</h2>
+    ${(a.recent||[]).length?`<table class="data" style="background:var(--card)"><tr><th>time</th><th>state</th><th>sev</th><th>rule</th><th>app</th><th>message</th></tr>
+      ${a.recent.map(x=>`<tr><td style="white-space:nowrap">${new Date(x.ts).toLocaleString([],{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})}</td>
+        <td><span class="pill ${x.state==='firing'?'down':'ok'}">${esc(x.state.toUpperCase())}</span></td>
+        <td>${sevChip(x.severity)}</td><td class="mono">${esc(x.rule)}</td><td>${esc(x.app)}</td><td style="font-size:11.5px">${esc(x.message)}</td></tr>`).join('')}</table>`
+      :'<div class="loading">no recorded transitions yet</div>'}</section>`;
+}
+
+// ------------------------------------- analytics / genai / deps / timeline / ops
+function renderAnalytics(d){
+  if(!d.daily.length)return '<div class="loading">no usage yet — adoption metrics come from server spans (users/sessions ride the golden envelope)</div>';
+  const req=d.daily.reduce((s,r)=>s+ +r.requests,0),peak=Math.max(...d.daily.map(r=>+r.users||0));
+  const sess=d.daily.reduce((s,r)=>s+ +r.sessions,0);
+  const totReq=d.users.reduce((s,u)=>s+ +u.requests,0)||1;
+  return `<div class="meta" style="margin:6px 0"><span>30 d requests <b>${fmt(req)}</b></span><span>peak DAU <b>${fmt(peak)}</b></span>
+      <span>sessions <b>${fmt(sess)}</b></span><span>known users <b>${fmt(d.users.length)}</b></span>
+      ${d.mtd_usd!=null?`<span>MTD compute <b>$${fmt(d.mtd_usd,2)}</b></span>`:''}</div>
+    <div class="grid2">
+    <div class="chartbox"><div class="cap">Requests / day</div>${dayBars(d.daily,'requests','var(--info)',v=>fmt(v))}</div>
+    <div class="chartbox"><div class="cap">Distinct users (DAU) / day</div>${dayBars(d.daily,'users','var(--purple)',v=>fmt(v))}</div></div>
+    <div class="cap" style="margin:12px 0 0;font-size:12px;color:var(--text-muted)">User history · top by requests (hashed ids — no PII) · est. $ = MTD compute × request share</div>
+    <table class="data"><tr><th>user</th><th>first seen</th><th>last seen</th><th>requests</th><th>sessions</th><th>active days</th><th>errors</th><th>AI tokens</th><th>est. $ MTD</th></tr>
+    ${d.users.map(u=>`<tr><td class="mono">${esc((u.user_hash||'').slice(0,10))}</td>
+      <td>${new Date(u.first_seen).toLocaleDateString()}</td><td>${ago(new Date(u.last_seen).getTime()/1000)}</td>
+      <td>${fmt(u.requests)}</td><td>${fmt(u.sessions)}</td><td>${fmt(u.active_days)}</td>
+      <td>${+u.errors?`<span style="color:var(--crit)">${fmt(u.errors)}</span>`:'0'}</td><td>${fmt(u.tokens)}</td>
+      <td>${d.mtd_usd!=null?'$'+fmt(d.mtd_usd*u.requests/totReq,2):'–'}</td></tr>`).join('')}</table>`;
+}
+function renderGenAI(d){
+  if(!d.daily.length)return '<div class="loading">no GenAI usage — appears when the app stamps gen_ai.* span attributes (INSTRUMENTATION.md L3)</div>';
+  const byDate={};d.daily.forEach(r=>{const e=byDate[r.date]=byDate[r.date]||{date:r.date,tokens:0,calls:0};e.tokens+=(+r.input_tokens+ +r.output_tokens);e.calls+=+r.calls});
+  const days=Object.values(byDate).sort((a,b)=>a.date<b.date?-1:1);
+  const models={};d.daily.forEach(r=>{const m=models[r.model]=models[r.model]||{model:r.model,calls:0,inp:0,out:0,errs:0,p95:0};
+    m.calls+=+r.calls;m.inp+=+r.input_tokens;m.out+=+r.output_tokens;m.errs+=+r.errors;m.p95=Math.max(m.p95,+r.p95_ms||0)});
+  return `<div class="meta" style="margin:6px 0"><span>30 d LLM calls <b>${fmt(days.reduce((s,r)=>s+r.calls,0))}</b></span>
+      <span>tokens <b>${fmt(days.reduce((s,r)=>s+r.tokens,0))}</b></span><span>models <b>${Object.keys(models).length}</b></span></div>
+    <div class="chartbox"><div class="cap">AI tokens / day (in+out)</div>${dayBars(days,'tokens','var(--brand)',v=>fmt(v))}</div>
+    <div class="cap" style="margin:12px 0 0;font-size:12px;color:var(--text-muted)">By model</div>
+    <table class="data"><tr><th>model</th><th>calls</th><th>tokens in/out</th><th>worst p95 ms</th><th>errors</th></tr>
+    ${Object.values(models).map(m=>`<tr><td class="mono">${esc(m.model)}</td><td>${fmt(m.calls)}</td><td>${fmt(m.inp)} / ${fmt(m.out)}</td><td>${fmt(m.p95)}</td><td>${m.errs?`<span style="color:var(--crit)">${fmt(m.errs)}</span>`:'0'}</td></tr>`).join('')}</table>
+    ${d.top.length?`<div class="cap" style="margin:12px 0 0;font-size:12px;color:var(--text-muted)">Top consumers (session × user)</div>
+    <table class="data"><tr><th>session</th><th>user</th><th>calls</th><th>tokens</th><th>last call</th></tr>
+    ${d.top.map(s=>`<tr><td class="mono">${esc((s.session_id||'').slice(0,10))}</td><td class="mono">${esc((s.user_hash||'').slice(0,10))}</td>
+      <td>${fmt(s.calls)}</td><td>${fmt(s.tokens)}</td><td>${new Date(s.last_call).toLocaleString([],{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})}</td></tr>`).join('')}</table>`:''}
+    ${genaiHealth(d)}
+    <div style="font-size:11px;color:var(--text-faint);margin-top:8px">Agent-level waterfalls live on the Agent tab; token→$ attribution notes on the Cost tab.</div>`;
+}
+function genaiHealth(d){
+  const tax=(d.error_taxonomy||[]),steps=(d.agent_steps||[]),qual=(d.quality||[]),fb=(d.feedback||[]);
+  let html='';
+  if(qual.length){const q=qual[0];
+    const sc=(v,inv)=>{const n=+v;const good=inv?n<=3:n>=7;const bad=inv?n>3:n<6;
+      return `<b style="color:${bad?'var(--crit)':good?'var(--ok)':'var(--warn)'}">${fmt(n,1)}</b>`};
+    html+=`<div class="cap" style="margin:14px 0 0;font-size:12px;color:var(--text-muted)">Runtime quality — LLM judge over sampled production traces (daily)</div>
+    <div class="meta" style="margin:6px 0"><span>relevance ${sc(q.relevance)}/10</span><span>faithfulness ${sc(q.faithfulness)}/10</span>
+      <span>toxicity ${sc(q.toxicity,true)}/10</span><span>${fmt(q.traces_sampled)} traces · ${new Date(q.ts).toLocaleString([],{month:'short',day:'numeric'})}</span></div>
+    ${q.comment?`<div style="font-size:12px;color:var(--text-muted)">“${esc(q.comment)}”</div>`:''}`;}
+  if(fb.length){const tot=fb.reduce((s,r)=>s+ +r.n,0),neg=fb.reduce((s,r)=>s+ +r.negative,0);
+    const avg=fb.reduce((s,r)=>s+ +r.avg_rating*+r.n,0)/Math.max(tot,1);
+    html+=`<div class="cap" style="margin:14px 0 0;font-size:12px;color:var(--text-muted)">User feedback — in-app ★ ratings via /monitor/feedback · 30 d</div>
+    <div class="meta" style="margin:6px 0"><span>avg <b style="color:${avg>=4?'var(--ok)':avg>=3?'var(--warn)':'var(--crit)'}">${fmt(avg,2)}★</b></span>
+      <span>ratings <b>${fmt(tot)}</b></span><span>negative (≤2★) <b>${neg?`<span style="color:var(--crit)">${fmt(neg)}</span>`:'0'}</b></span></div>`;}
+  if(tax.length)html+=`<div class="cap" style="margin:14px 0 0;font-size:12px;color:var(--text-muted)">LLM error taxonomy · 7 d — rate limits vs policy vs timeouts vs schema</div>
+    <table class="data"><tr><th>category</th><th>errors</th><th>last seen</th><th>sample</th></tr>
+    ${tax.map(r=>`<tr><td class="mono">${esc(r.category)}</td><td style="color:var(--crit)">${fmt(r.errors)}</td>
+      <td style="white-space:nowrap">${new Date(r.last_seen).toLocaleString([],{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})}</td>
+      <td class="mono" style="font-size:10.5px">${esc((r.sample||'').slice(0,90))}</td></tr>`).join('')}</table>`;
+  if(steps.length>1){const last=steps[steps.length-1];
+    html+=`<div class="cap" style="margin:14px 0 0;font-size:12px;color:var(--text-muted)">Agent complexity — spans per agent trace (runaway-agent watch)</div>
+    <div class="chartbox">${dayBars(steps,'avg_steps','var(--purple)',v=>fmt(v,1))}</div>
+    <div class="meta"><span>today avg <b>${fmt(last.avg_steps,1)}</b> spans/run</span><span>max <b>${fmt(last.max_steps)}</b></span><span>runs <b>${fmt(last.agent_runs)}</b></span></div>`;}
+  return html;
+}
+function renderDeps(deps){
+  if(!deps||!deps.length)return '<div class="loading">no outbound calls in the last 7 days (dependency view = CLIENT spans by peer)</div>';
+  const max=Math.max(...deps.map(r=>+r.calls),1);
+  return `<div class="cap" style="margin:6px 0;font-size:12px;color:var(--text-muted)">Where this app spends its time — outbound dependencies, last 7 days</div>
+    <table class="data"><tr><th>dependency</th><th>calls</th><th></th><th>avg ms</th><th>p95 ms</th><th>errors</th></tr>
+    ${deps.map(r=>`<tr><td class="mono">${esc(r.dependency)}</td><td>${fmt(r.calls)}</td>
+      <td style="min-width:120px"><div style="height:8px;background:var(--info);border-radius:4px;width:${Math.max(3,100*r.calls/max)}%"></div></td>
+      <td>${fmt(r.avg_ms)}</td><td>${fmt(r.p95_ms)}</td><td>${+r.errors?`<span style="color:var(--crit)">${fmt(r.errors)}</span>`:'0'}</td></tr>`).join('')}</table>`;
+}
+const ALERT_TAB={journey_failed:'uptime',app_down:'uptime',app_stopped:'uptime',slow_p95:'requests',probe_error_rate:'errors',anomaly_traffic:'requests',anomaly_latency:'requests',budget_burn:'cost',cost_spike:'cost',critical_findings:'quality',review_reject:'quality',permission_drift:'ops',auto_stopped:'ops',budget_stopped:'ops',quality_regression:'genai',manual_stop:'ops',manual_start:'ops',app_provisioned:'ops'};
+const EV_ICON={alert:'🔥',deploy:'🚀',anomaly_traffic:'📈',anomaly_latency:'🐢',budget_burn:'💰',auto_stopped:'🛑',budget_stopped:'⛔',quality_regression:'⚖️',app_provisioned:'✨',permission_drift:'🔐'};
+function renderTimeline(d){
+  if(!d.events.length&&!d.releases.length)return '<div class="loading">nothing recorded yet — the timeline merges alerts, anomalies, deployments, budget and lifecycle events</div>';
+  const rel=d.releases.length?`<div class="cap" style="font-size:12px;color:var(--text-muted);margin:6px 0">Regression by version (per deployment window)</div>
+    <table class="data"><tr><th>deployment</th><th>since</th><th>requests</th><th>p95 ms</th><th>error %</th><th>tokens</th><th>vs prev</th></tr>
+    ${d.releases.map((r,i)=>{const prev=d.releases[i+1];
+      const worse=prev&&+r.p95_ms&&+prev.p95_ms&&(+r.p95_ms>1.3*+prev.p95_ms||+r.error_pct>+prev.error_pct+2);
+      const better=prev&&+r.p95_ms&&+prev.p95_ms&&(+r.p95_ms<0.77*+prev.p95_ms);
+      return `<tr><td class="mono">${esc((r.deployment_id||'').slice(0,8))}…</td>
+      <td style="white-space:nowrap">${new Date(r.start_ts).toLocaleString([],{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})}</td>
+      <td>${fmt(r.requests)}</td><td>${fmt(r.p95_ms)}</td><td>${fmt(r.error_pct,1)}</td><td>${fmt(r.tokens)}</td>
+      <td>${!prev?'–':worse?'<span style="color:var(--crit)">▲ worse</span>':better?'<span style="color:var(--ok)">▼ better</span>':'≈'}</td></tr>`}).join('')}</table>`:'';
+  return `${rel}
+    <div class="cap" style="font-size:12px;color:var(--text-muted);margin:14px 0 6px">Incident timeline · alerts + deployments + anomalies + lifecycle · 14 days</div>
+    ${d.events.map(e=>{const icon=EV_ICON[e.rule]||EV_ICON[e.type]||'•';
+      return `<div style="display:flex;gap:10px;padding:6px 0;border-bottom:1px solid var(--grid);font-size:12.5px;align-items:baseline">
+      <span style="white-space:nowrap;color:var(--text-faint);font-variant-numeric:tabular-nums">${new Date(e.ts).toLocaleString([],{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})}</span>
+      <span>${icon}</span>
+      ${e.type==='alert'?`<span class="pill ${e.state==='firing'?'down':'ok'}" style="margin:0">${esc((e.state||'').toUpperCase())}</span>`:''}
+      <span class="mono" style="color:var(--text-muted)">${esc(e.rule)}</span>
+      <span style="flex:1">${esc(e.message)}</span></div>`}).join('')}`;
+}
+async function saveConfig(){
+  const b=document.getElementById('cfgSave');b.textContent='Saving…';b.disabled=true;
+  const tags={};['team','cost_center','env','tier'].forEach(k=>{const v=document.getElementById('tag_'+k).value.trim();if(v)tags[k]=v});
+  try{
+    const r=await fetch(`api/apps/${encodeURIComponent(CUR)}/config`,{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({tags,budget_usd_month:+document.getElementById('cfgBudget').value||0,
+        auto_stop:document.getElementById('cfgAutoStop').value,idle_hours:+document.getElementById('cfgIdle').value||24})});
+    if(!r.ok)throw new Error((await r.json()).detail||'save failed');
+    b.textContent='Saved ✓';enrichTick();
+  }catch(e){b.textContent='Failed: '+e.message.slice(0,60);}
+  setTimeout(()=>{b.textContent='Save settings';b.disabled=false;},2500);
+}
+async function appCtl(action){
+  const b=document.getElementById('ctl_'+action);b.disabled=true;b.textContent=action+' queued…';
+  try{await fetch(`api/actions/appctl/${encodeURIComponent(CUR)}/${action}`,{method:'POST'});b.textContent=action+' running (via job, ~1 min)';}
+  catch(e){b.textContent='failed';b.disabled=false;}
+}
+async function runCapacity(){
+  const b=document.getElementById('capBtn');b.disabled=true;b.textContent='Ramping 1→8 concurrent… (~35 s)';
+  try{
+    const r=await fetch(`api/actions/capacity/${encodeURIComponent(CUR)}`,{method:'POST'});
+    if(!r.ok)throw new Error((await r.json()).detail||'failed');
+    if(TAB==='ops')loadTab('ops');
+  }catch(e){b.textContent='Failed: '+String(e.message).slice(0,60);b.disabled=false;}
+}
+function renderOps(d){
+  const cfg=d.config||{},tags=(()=>{try{return JSON.parse(cfg.tags_json||'{}')}catch(e){return{}}})();
+  const RES_ICON={sql_warehouse:'🏭',serving_endpoint:'🤖',job:'⚙️',experiment:'🧪',database:'🐘',uc_securable:'📦',secret:'🔑',genie_space:'🧞',app:'🔗'};
+  const resources=(d.resources||[]).map(r=>{
+    const type=Object.keys(r).find(k=>k!=='name'&&typeof r[k]==='object')||'?';
+    const detail=JSON.stringify(r[type]||{});
+    return `<span class="badge" data-tip="${esc(`<b>${esc(type)}</b><br>${esc(detail.slice(0,220))}`)}">${RES_ICON[type]||'📦'} ${esc(r.name)}</span>`}).join(' ');
+  return `
+    <div class="sec">
+      <div class="cap">Bound resources <span style="font-weight:400;color:var(--text-faint)">— from the app spec: warehouses, endpoints, Genie, Lakebase, jobs…</span></div>
+      <div class="badges" style="margin-top:2px">${resources||'<span class="loading" style="padding:0">none declared</span>'}</div>
+    </div>
+    <div class="grid2"><div>
+      <div class="sec">
+      <div class="cap">Governance settings <span style="font-weight:400;color:var(--text-faint)">— tags drive chargeback · budget drives burn alerts · auto-stop saves ~0.5 DBU/h idle</span></div>
+      <table class="data" style="max-width:480px">
+        <tr><td style="padding:8px;white-space:nowrap">team</td><td style="padding:8px"><input id="tag_team" value="${esc(tags.team||'')}" placeholder="e.g. fe-ai"></td></tr>
+        <tr><td style="padding:8px">cost_center</td><td style="padding:8px"><input id="tag_cost_center" value="${esc(tags.cost_center||'')}" placeholder="e.g. cc-1042"></td></tr>
+        <tr><td style="padding:8px">env</td><td style="padding:8px"><input id="tag_env" value="${esc(tags.env||'')}" placeholder="dev / staging / prod"></td></tr>
+        <tr><td style="padding:8px">tier</td><td style="padding:8px"><input id="tag_tier" value="${esc(tags.tier||'')}" placeholder="t0 / t1 / t2"></td></tr>
+        <tr><td style="padding:8px">budget $/month</td><td style="padding:8px"><input id="cfgBudget" type="number" value="${esc(cfg.budget_usd_month||'')}" placeholder="0 = no budget"></td></tr>
+        <tr><td style="padding:8px">auto-stop</td><td style="padding:8px;display:flex;gap:8px;align-items:center"><select id="cfgAutoStop" data-tip="<b>budget</b> = hard enforcement: the hourly stopper job stops the app once month-to-date $ reaches the budget">
+          ${['none','idle','night','budget'].map(o=>`<option ${cfg.auto_stop===o?'selected':''}>${o}</option>`).join('')}</select>
+          <span style="color:var(--text-muted);font-size:12px;white-space:nowrap">idle hours</span> <input id="cfgIdle" type="number" value="${esc(cfg.idle_hours||24)}" style="width:64px"></td></tr>
+      </table>
+      <div class="btnrow"><button class="action" id="cfgSave" onclick="saveConfig()">Save settings</button>
+      <span style="font-size:11px;color:var(--text-faint)">last saved: ${cfg.updated_at?new Date(cfg.updated_at).toLocaleString():'never'} ${esc(cfg.updated_by||'')}</span></div>
+      </div>
+      <div class="sec">
+      <div class="cap">Lifecycle</div>
+      <div class="btnrow"><button class="action" id="ctl_stop" onclick="appCtl('stop')">⏹ Stop app now</button>
+      <button class="action" id="ctl_start" onclick="appCtl('start')">▶ Start app</button></div>
+      <div style="font-size:11px;color:var(--text-faint);margin-top:6px">runs via monitor-app-stopper as the workspace owner · logged to alert_events</div>
+      </div>
+      <div class="sec">
+      </div>
+      <div class="sec">
+      <div class="cap">Telemetry volume · 24 h <span style="font-weight:400;color:var(--text-faint)">— export volume per signal</span></div>
+      <div class="meta" style="margin-top:4px">${(d.telemetry_volume||[]).map(r=>`<span>${esc(r.signal)} <b>${fmt(r.rows_24h)}</b></span>`).join('')||'<span class="loading" style="padding:0">no rows</span>'}</div>
+      </div>
+    </div><div>
+      <div class="cap">CI/CD — deployment history</div>
+      <table class="data"><tr><th>when</th><th>deployment</th><th>state</th><th>mode</th></tr>
+      ${(d.deployments||[]).slice(0,10).map(x=>`<tr><td style="white-space:nowrap">${x.create_time?new Date(x.create_time).toLocaleString([],{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}):'–'}</td>
+        <td class="mono">${esc((x.deployment_id||'').slice(0,8))}…</td>
+        <td><span class="pill ${x.state==='SUCCEEDED'?'ok':x.state==='FAILED'?'down':'pending'}" style="margin:0">${esc(x.state)}</span></td>
+        <td>${esc(x.mode||'')}</td></tr>`).join('')||'<tr><td colspan="4" class="loading">no history yet (hourly snapshot)</td></tr>'}</table>
+      ${(d.job_health||[]).length?`<div class="cap" style="margin-top:18px">Bound job health <span style="font-weight:400;color:var(--text-faint)">— system.lakeflow runs for jobs this app declares · 7 d</span></div>
+      <table class="data"><tr><th>job id</th><th>runs</th><th>succeeded</th><th>avg s</th><th>last run</th></tr>
+      ${d.job_health.map(j=>`<tr><td class="mono">${esc(String(j.job_id))}</td><td>${fmt(j.runs_7d)}</td>
+        <td style="color:${+j.succeeded===+j.runs_7d?'var(--ok)':'var(--crit)'}">${fmt(j.succeeded)}/${fmt(j.runs_7d)}</td>
+        <td>${fmt(j.avg_s)}</td><td style="white-space:nowrap">${j.last_run?new Date(j.last_run).toLocaleString([],{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}):'–'}</td></tr>`).join('')}</table>`:''}
+      <div class="cap" style="margin-top:18px">Permissions <span style="font-weight:400;color:var(--text-faint)">— latest ACL snapshot; drift raises alerts</span></div>
+      <table class="data"><tr><th>principal</th><th>type</th><th>level</th></tr>
+      ${(d.permissions||[]).map(x=>`<tr><td class="mono">${esc(x.principal)}</td><td>${esc(x.principal_type)}</td><td>${esc(x.level)}</td></tr>`).join('')||'<tr><td colspan="3" class="loading">no snapshot yet</td></tr>'}</table>
+      <div class="cap" style="margin-top:18px">Audit trail <span style="font-weight:400;color:var(--text-faint)">— system.access.audit · 7 days</span></div>
+      <table class="data"><tr><th>time</th><th>user</th><th>action</th><th>status</th></tr>
+      ${(d.audit||[]).slice(0,15).map(x=>`<tr><td style="white-space:nowrap">${new Date(x.event_time).toLocaleString([],{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})}</td>
+        <td class="mono" style="font-size:10.5px">${esc(x.user||'')}</td><td class="mono">${esc(x.action_name)}</td><td>${esc(x.status_code||'')}</td></tr>`).join('')||'<tr><td colspan="4" class="loading">no app-scoped audit rows yet</td></tr>'}</table>
+    </div></div>`;
+}
+
+// -------------------------------------------------------------- governance
+async function provisionApp(){
+  const b=document.getElementById('provBtn');b.disabled=true;b.textContent='Provisioning…';
+  try{
+    const r=await fetch('api/actions/provision',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({app_name:document.getElementById('prov_name').value,team:document.getElementById('prov_team').value,
+        cost_center:document.getElementById('prov_cc').value,env:document.getElementById('prov_env').value})});
+    const d=await r.json();
+    if(!r.ok)throw new Error(d.detail||'failed');
+    b.textContent=`Provision job started (run ${d.run_id}) — app appears in the fleet in ~3 min`;
+  }catch(e){b.textContent='Failed: '+e.message.slice(0,80);b.disabled=false;}
+}
+function complianceRow(a){
+  const s=ENRICH.security[a.name],r=ENRICH.reviews[a.name],c=ENRICH.config?ENRICH.config[a.name]:null;
+  const t=tagsOf(a.name);
+  const checks=[
+    ['telemetry',GOV&&GOV.telemetry_active.includes(a.name)],
+    ['scan ≥60',s&&+s.quality_score>=60],
+    ['no crit/high',s&&(+s.findings_critical+ +s.findings_high)===0],
+    ['review ok',r&&r.verdict!=='reject'],
+    ['tagged',!!(t.team&&t.cost_center)],
+    ['budget set',c&&+c.budget_usd_month>0],
+  ];
+  const passed=checks.filter(c=>c[1]).length;
+  return {name:a.name,checks,passed,total:checks.length};
+}
+let GOV=null;
+function exportCompliance(){
+  const rows=DATA.apps.map(complianceRow);
+  const md=['# Fleet compliance report — '+new Date().toISOString().slice(0,10),'',
+    '| app | '+rows[0].checks.map(c=>c[0]).join(' | ')+' | score |',
+    '|---|'+rows[0].checks.map(()=>'---').join('|')+'|---|',
+    ...rows.map(r=>`| ${r.name} | ${r.checks.map(c=>c[1]?'✅':'❌').join(' | ')} | ${r.passed}/${r.total} |`)].join('\n');
+  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([md],{type:'text/markdown'}));
+  a.download='compliance-report.md';a.click();
+}
+async function appAction(ev,path,busy){
+  const b=ev.target,old=b.textContent;b.textContent=busy;b.disabled=true;
+  try{const r=await fetch('api/actions/'+path,{method:'POST'});
+    if(!r.ok){let m='HTTP '+r.status;try{m=(await r.json()).detail||m}catch(e){};throw new Error(m)}
+    b.textContent='✓ triggered';
+  }catch(e){b.textContent='failed';b.title=e.message;}
+  setTimeout(()=>{b.textContent=old;b.disabled=false;},4000);
+}
+function toggleGovPanel(id){
+  ['panel-create','panel-autostop'].forEach(x=>{const el=document.getElementById(x);
+    if(el)el.style.display=(x===id&&el.style.display==='none')?'':'none';});
+}
+async function autostopPolicy(dry){
+  const out=document.getElementById('as_out');
+  const body={auto_stop:document.getElementById('as_mode').value,
+              idle_hours:+document.getElementById('as_hours').value||24,dry_run:dry};
+  out.textContent=dry?'previewing…':'applying…';
+  try{
+    const r=await fetch('api/actions/autostop-policy',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    if(!r.ok){let m='HTTP '+r.status;try{m=(await r.json()).detail||m}catch(e){};throw new Error(m)}
+    const d=await r.json();
+    const list=(d.targets||d.applied||[]);
+    out.innerHTML=dry
+      ?`Would apply <b>${esc(body.auto_stop)}</b>${body.auto_stop==='idle'?` (${body.idle_hours} h)`:''} to <b>${list.length}</b> apps: ${list.map(esc).join(', ')||'none'}`
+      :`✓ Applied to <b>${list.length}</b> apps: ${list.map(esc).join(', ')||'none'} — the hourly lifecycle job enforces it.`;
+  }catch(e){out.innerHTML=`<span style="color:var(--crit)">${esc(e.message)}</span>`;}
+}
+async function renderGovernanceSeg(){
+  const v=$('#view');v.className='home';
+  v.innerHTML=dashHeadHtml()+'<div class="loading">assembling governance view…</div>';
+  try{GOV=await get('api/governance');}catch(e){v.innerHTML=dashHeadHtml()+`<div class="errbox">${esc(e.message)}</div>`;return}
+  if(SEG!=='governance')return; // navigated away while the fetch was in flight
+  const rows=DATA?DATA.apps.map(complianceRow):[];
+  const mtdTotal=GOV.mtd.reduce((s,r)=>s+(+r.mtd_usd||0),0);
+  const tagged=DATA?DATA.apps.filter(a=>{const t=tagsOf(a.name);return t.team&&t.cost_center}).length:0;
+  const usage={};GOV.usage.forEach(u=>usage[u.name]=u);
+  v.innerHTML=dashHeadHtml()+`
+    <div style="font-size:12.5px;color:var(--text-muted);margin:-6px 0 12px">Cost allocation, readiness and tags — the fleet-level view.</div>
+    <div class="actionbar"><span class="ab-label">Admin actions</span>
+      <button class="action" onclick="toggleGovPanel('panel-create')">＋ Create app</button>
+      <button class="action" onclick="toggleGovPanel('panel-autostop')">⏻ Auto-stop rules</button>
+    </div>
+    <div id="panel-create" class="govpanel" style="display:none">
+      <div style="font-size:12.5px;color:var(--text-muted);margin-bottom:10px">Creates a tagged Databricks App from the toolkit template — telemetry, middleware and /healthz pre-wired.</div>
+      <table class="data">
+        <tr><td>app name</td><td><input id="prov_name" placeholder="my-new-app (lowercase, hyphens)"></td></tr>
+        <tr><td>team</td><td><input id="prov_team" placeholder="fe-ai"></td></tr>
+        <tr><td>cost_center</td><td><input id="prov_cc" placeholder="cc-1042"></td></tr>
+        <tr><td>env</td><td><select id="prov_env"><option>dev</option><option>staging</option><option>prod</option></select></td></tr>
+      </table>
+      <button class="action" id="provBtn" onclick="provisionApp()" style="margin-top:10px">Create app</button>
+    </div>
+    <div id="panel-autostop" class="govpanel" style="display:none">
+      <div style="font-size:12.5px;color:var(--text-muted);margin-bottom:10px">Fleet rule: automatically stop apps to save cost. Applies to every app except the monitor and apps tagged <span class="mono">env=prod</span>; the hourly lifecycle job enforces it. Idle mode only stops apps with observed request evidence (fail-safe).</div>
+      <div class="btnrow">
+        <label style="font-size:12.5px">Mode <select id="as_mode"><option value="idle">stop when idle</option><option value="night">stop at night (00–06)</option><option value="none">disable auto-stop</option></select></label>
+        <label style="font-size:12.5px">Idle hours <input id="as_hours" type="number" value="24" min="1" style="width:70px"></label>
+        <button class="action" onclick="autostopPolicy(true)">Preview</button>
+        <button class="action" id="asApply" onclick="autostopPolicy(false)">Apply rule</button>
+      </div>
+      <div id="as_out" style="font-size:12.5px;color:var(--text-muted);margin-top:10px"></div>
+    </div>
+    <div class="kpis">
+      ${kpi('MTD compute',`$${fmt(mtdTotal,2)}`,'','all apps · this month')}
+      ${kpi('Tag coverage',DATA?`${tagged}<span class="unit">/${DATA.apps.length}</span>`:'–','','apps with team + cost_center')}
+      ${kpi('Budgets set',Object.values(ENRICH.config||{}).filter(c=>+c.budget_usd_month>0).length,'','burn alerts at 70/100%')}
+      ${kpi('Ready',rows.filter(r=>r.passed===r.total).length+'<span class="unit">/'+rows.length+'</span>','','all checks green')}
+    </div>
+    <section><h2>Cost allocation — month to date</h2>
+    <table class="data" style="background:var(--card)"><tr><th>team</th><th>cost_center</th><th>apps</th><th>compute $</th><th>AI tokens</th><th>AI calls</th></tr>
+    ${GOV.chargeback.map(r=>`<tr><td><b>${esc(r.team)}</b></td><td>${esc(r.cost_center)}</td><td>${fmt(r.apps)}</td>
+      <td>${r.mtd_usd==null?'–':'$'+fmt(r.mtd_usd,2)}</td><td>${fmt(r.mtd_tokens)}</td><td>${fmt(r.ai_calls)}</td></tr>`).join('')
+      ||'<tr><td colspan="6" class="loading">no cost rows this month yet</td></tr>'}</table>
+    <div style="font-size:11px;color:var(--text-faint);margin-top:4px">untagged = apps without team/cost_center — set tags on each app's Ops tab (governed-tags enforcement at deploy time is the platform-level complement)</div></section>
+    <section><h2>Readiness checklist <button class="action" style="margin-left:8px" onclick="exportCompliance()">⬇ export .md</button></h2>
+    <table class="data" style="background:var(--card)"><tr><th>app</th>${rows.length?rows[0].checks.map(c=>`<th>${c[0]}</th>`).join(''):''}<th>score</th></tr>
+    ${rows.map(r=>`<tr class="click" onclick="goApp('${esc(r.name)}','ops')"><td><b>${esc(r.name)}</b></td>
+      ${r.checks.map(c=>`<td>${c[1]?'✅':'❌'}</td>`).join('')}
+      <td><b style="color:${r.passed===r.total?'var(--ok)':r.passed>=r.total-2?'var(--warn)':'var(--crit)'}">${r.passed}/${r.total}</b></td></tr>`).join('')}</table></section>
+    <section><h2>App usage and cost — 7 days</h2>
+    <table class="data" style="background:var(--card)"><tr><th>app</th><th>requests</th><th>peak DAU</th><th>sessions</th><th>compute $ MTD</th><th>scan</th><th>review</th></tr>
+    ${(DATA?DATA.apps:[]).map(a=>{const u=usage[a.name]||{},s=ENRICH.security[a.name],r=ENRICH.reviews[a.name],m=ENRICH.mtd[a.name];
+      return `<tr class="click" onclick="goApp('${esc(a.name)}')"><td><b>${esc(a.name)}</b></td>
+      <td>${fmt(u.requests_7d)}</td><td>${fmt(u.peak_dau)}</td><td>${fmt(u.sessions_7d)}</td>
+      <td>${m?'$'+fmt(m.mtd_usd,2):'–'}</td>
+      <td>${s?`<span style="color:${scoreColor(+s.quality_score)}">${s.quality_score}</span>`:'–'}</td>
+      <td>${r?(r.verdict==='approve'?'✓':r.verdict==='reject'?'✗':'⚠')+' '+(r.score_overall??''):'–'}</td></tr>`}).join('')}</table></section>
+    <section><h2>Fleet audit trail — apps service · 7 days</h2>
+    <div style="font-size:11.5px;color:var(--text-faint);margin:-4px 0 6px">Source: <span class="mono">system.access.audit</span> (Databricks platform audit log), filtered to <b>service_name = 'apps'</b> and <b>this workspace</b>, snapshotted to <span class="mono">monitor_audit</span> by the hourly inventory job.</div>
+    <table class="data" style="background:var(--card)"><tr><th>time</th><th>user</th><th>action</th><th>app</th><th>status</th></tr>
+    ${(GOV.audit||[]).slice(0,30).map(x=>`<tr><td style="white-space:nowrap">${new Date(x.event_time).toLocaleString([],{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})}</td>
+      <td class="mono" style="font-size:10.5px">${esc(x.user||'')}</td><td class="mono">${esc(x.action_name)}</td><td>${esc(x.app||'')}</td><td>${esc(x.status_code||'')}</td></tr>`).join('')
+      ||'<tr><td colspan="5" class="loading">audit snapshot appears after the next inventory run</td></tr>'}</table></section>`;
+}
+
+// ------------------------------------------------------------------- loops
+// only the live Overview segment re-renders on tick; catalog/topology/governance are
+// navigated-to and refresh on nav (so we never clobber a sort, a graph, or a form input)
+function liveRerender(){
+  const r=route();
+  if(r.page==='app')renderApp(false);
+  else if(r.page==='home'&&SEG==='overview')renderDashboard();
+}
+async function tick(){
+  try{
+    DATA=await get('api/fleet');
+    $('#refreshed').textContent='refreshed '+new Date(DATA.generated_at).toLocaleTimeString();
+    const ws=$('#wsel');
+    if(ws&&DATA.workspaces&&!ws.dataset.done){
+      ws.dataset.done='1';ws.style.display='';
+      ws.innerHTML=DATA.workspaces.map(x=>`<option value="${esc(x.url||'')}" ${x.name===DATA.workspace?'selected':''}>${esc(x.name)}</option>`).join('');
+      ws.onchange=()=>{if(ws.value)location.href=ws.value;};
+    }
+    liveRerender();
+  }catch(e){$('#refreshed').textContent='refresh failed';}
+}
+async function enrichTick(){try{ENRICH=await get('api/fleet/enrich');liveRerender();}catch(e){}}
+async function alertsTick(){try{ALERTS=await get('api/alerts');
+  const n=(ALERTS.active||[]).length;
+  $('#bellCount').textContent=n?n:'';
+  $('#bell').style.borderColor=n?'var(--crit)':'var(--border-strong)';
+  const _r=route();if(_r.page==='home'&&_r.seg==='alerts')renderAlertsSeg();
+}catch(e){}}
+$('#sync').onclick=async()=>{
+  $('#sync').textContent='Syncing…';$('#sync').disabled=true;
+  try{const r=await fetch('api/actions/refresh-inventory',{method:'POST'});
+    $('#sync').textContent=r.ok?'Sync started ✓':'Sync failed';
+  }catch(e){$('#sync').textContent='Sync failed';}
+  setTimeout(()=>{$('#sync').textContent='Refresh inventory';$('#sync').disabled=false;tick();},4000);
+};
+
+// tooltip layer: any [data-tip] element gets a rich hover bubble
+const tipEl=document.createElement('div');tipEl.id='tip';document.body.appendChild(tipEl);
+document.addEventListener('mouseover',e=>{
+  const t=e.target.closest('[data-tip]');
+  if(!t||!t.dataset.tip){tipEl.style.display='none';return}
+  tipEl.innerHTML=t.dataset.tip;
+  tipEl.style.display='block';
+  const r=t.getBoundingClientRect(),tw=tipEl.offsetWidth,th=tipEl.offsetHeight;
+  let left=Math.min(Math.max(8,r.left),window.innerWidth-tw-8);
+  let top=r.bottom+8; if(top+th>window.innerHeight-8) top=r.top-th-8;
+  tipEl.style.left=left+'px'; tipEl.style.top=top+'px';
+});
+document.addEventListener('scroll',()=>tipEl.style.display='none',true);
+
+renderRoute();
+tick().then(renderRoute);setInterval(tick,15000);
+enrichTick();setInterval(enrichTick,600000);
+alertsTick();setInterval(alertsTick,60000);
+</script>
+</body>
+</html>
