@@ -1,0 +1,52 @@
+resources:
+  jobs:
+    inventory_scan:
+      name: monitor-inventory-scan
+      description: >-
+        Hourly fleet snapshot: lists every Databricks App into apps_inventory and
+        grants the monitor app's service principal probe (CAN_USE) + schema read access.
+      schedule:
+        quartz_cron_expression: "0 15 * * * ?"
+        timezone_id: UTC
+        pause_status: UNPAUSED
+      max_concurrent_runs: 1
+      queue:
+        enabled: true
+      environments:
+        - environment_key: default
+          spec:
+            client: "2"
+            dependencies:
+              - databricks-sdk>=0.38.0
+              - httpx
+              - bandit
+      tasks:
+        - task_key: scan
+          environment_key: default
+          spark_python_task:
+            python_file: ../jobs/inventory_scan.py
+            parameters:
+              - "--catalog=${var.catalog}"
+              - "--schema=${var.schema}"
+              - "--monitor-app=apps-monitor"
+        - task_key: source_scan
+          depends_on:
+            - task_key: scan
+          environment_key: default
+          spark_python_task:
+            python_file: ../jobs/source_scan.py
+            parameters:
+              - "--catalog=${var.catalog}"
+              - "--schema=${var.schema}"
+              - "--jobs-dir=${workspace.file_path}/jobs"
+        - task_key: gold
+          depends_on:
+            - task_key: scan
+          environment_key: default
+          spark_python_task:
+            python_file: ../jobs/gold_views.py
+            parameters:
+              - "--catalog=${var.catalog}"
+              - "--schema=${var.schema}"
+              - "--monitor-app=apps-monitor"
+              - "--jobs-dir=${workspace.file_path}/jobs"

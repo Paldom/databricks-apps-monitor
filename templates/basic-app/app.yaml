@@ -1,0 +1,23 @@
+command:
+  - opentelemetry-instrument
+  - python
+  - main.py
+env:
+  - name: OTEL_SERVICE_NAME
+    value: __APP_NAME__
+  - name: OTEL_TRACES_EXPORTER
+    value: otlp
+  - name: OTEL_METRICS_EXPORTER
+    value: otlp
+  - name: OTEL_LOGS_EXPORTER
+    value: otlp
+  # observability-cost guardrail: unbounded tracing can add 30%+ DBU. For high-traffic
+  # prod apps switch to head sampling, e.g.:
+  #   OTEL_TRACES_SAMPLER: parentbased_traceidratio · OTEL_TRACES_SAMPLER_ARG: "0.2"
+  - name: OTEL_TRACES_SAMPLER
+    value: always_on
+  # cross-app trace stitching: outbound httpx/requests inject W3C traceparent
+  - name: OTEL_PROPAGATORS
+    value: tracecontext
+  - name: OTEL_PYTHON_LOG_CORRELATION
+    value: "true"

@@ -1,0 +1,48 @@
+resources:
+  jobs:
+    llm_review:
+      name: monitor-llm-review
+      description: >-
+        Daily agentic code review: packs each app's source and has a Databricks-hosted
+        LLM produce verdict + scores + findings into llm_reviews. Only deployments
+        not yet reviewed are sent to the model.
+      schedule:
+        quartz_cron_expression: "0 0 5 * * ?"
+        timezone_id: UTC
+        pause_status: UNPAUSED
+      max_concurrent_runs: 1
+      queue:
+        enabled: true
+      environments:
+        - environment_key: default
+          spec:
+            client: "2"
+            dependencies:
+              - databricks-sdk>=0.38.0
+              - httpx
+      parameters:
+        - name: only_app
+          default: ""
+      tasks:
+        - task_key: review
+          environment_key: default
+          spark_python_task:
+            python_file: ../jobs/llm_review.py
+            parameters:
+              - "--catalog=${var.catalog}"
+              - "--schema=${var.schema}"
+              - "--model=${var.review_model}"
+              - "--only-app={{job.parameters.only_app}}"
+              - "--jobs-dir=${workspace.file_path}/jobs"
+        - task_key: quality_evals
+          depends_on:
+            - task_key: review
+          run_if: ALL_DONE   # behavioral evals run even if the code review fails
+          environment_key: default
+          spark_python_task:
+            python_file: ../jobs/quality_evals.py
+            parameters:
+              - "--catalog=${var.catalog}"
+              - "--schema=${var.schema}"
+              - "--model=${var.review_model}"
+              - "--jobs-dir=${workspace.file_path}/jobs"

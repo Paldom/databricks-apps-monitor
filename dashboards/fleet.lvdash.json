@@ -1,0 +1,208 @@
+{
+  "datasets": [
+    {
+      "name": "ds_kpis",
+      "displayName": "Fleet KPIs 24h",
+      "queryLines": [
+        "SELECT count(DISTINCT service_name) AS apps, count(*) AS requests, ",
+        "sum(CASE WHEN coalesce(status.code,'') ILIKE '%error%' THEN 1 ELSE 0 END) AS errors ",
+        "FROM main.monitor.otel_spans ",
+        "WHERE kind ILIKE '%server%' AND time >= now() - INTERVAL 24 HOURS"
+      ]
+    },
+    {
+      "name": "ds_requests_daily",
+      "displayName": "Requests per day",
+      "queryLines": [
+        "SELECT date, sum(requests) AS requests, sum(errors) AS errors ",
+        "FROM main.monitor.v_usage_daily ",
+        "WHERE date >= current_date() - 14 GROUP BY date ORDER BY date"
+      ]
+    },
+    {
+      "name": "ds_cost",
+      "displayName": "MTD cost by app",
+      "queryLines": [
+        "SELECT name, sum(mtd_usd) AS mtd_usd ",
+        "FROM main.monitor.v_chargeback ",
+        "GROUP BY name ORDER BY mtd_usd DESC NULLS LAST LIMIT 20"
+      ]
+    },
+    {
+      "name": "ds_scans",
+      "displayName": "Latest scans",
+      "queryLines": [
+        "SELECT name, quality_score, findings_critical, findings_high, deps, freshness_score ",
+        "FROM main.monitor.v_scan_latest ORDER BY quality_score"
+      ]
+    }
+  ],
+  "pages": [
+    {
+      "name": "fleet",
+      "displayName": "Fleet",
+      "layout": [
+        {
+          "widget": {
+            "name": "w_apps",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_kpis",
+                  "fields": [{"name": "apps", "expression": "`apps`"}],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "frame": {"showTitle": true, "title": "Apps reporting telemetry · 24h"},
+              "encodings": {"value": {"fieldName": "apps", "displayName": "apps"}}
+            }
+          },
+          "position": {"x": 0, "y": 0, "width": 1, "height": 3}
+        },
+        {
+          "widget": {
+            "name": "w_requests",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_kpis",
+                  "fields": [{"name": "requests", "expression": "`requests`"}],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "frame": {"showTitle": true, "title": "Requests · 24h"},
+              "encodings": {"value": {"fieldName": "requests", "displayName": "requests"}}
+            }
+          },
+          "position": {"x": 1, "y": 0, "width": 1, "height": 3}
+        },
+        {
+          "widget": {
+            "name": "w_errors",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_kpis",
+                  "fields": [{"name": "errors", "expression": "`errors`"}],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "frame": {"showTitle": true, "title": "Errors · 24h"},
+              "encodings": {"value": {"fieldName": "errors", "displayName": "errors"}}
+            }
+          },
+          "position": {"x": 2, "y": 0, "width": 1, "height": 3}
+        },
+        {
+          "widget": {
+            "name": "w_req_line",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_requests_daily",
+                  "fields": [
+                    {"name": "date", "expression": "`date`"},
+                    {"name": "requests", "expression": "`requests`"}
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "frame": {"showTitle": true, "title": "Requests per day · fleet · 14d"},
+              "encodings": {
+                "x": {"fieldName": "date", "scale": {"type": "temporal"}, "displayName": "date"},
+                "y": {"fieldName": "requests", "scale": {"type": "quantitative"}, "displayName": "requests"}
+              }
+            }
+          },
+          "position": {"x": 3, "y": 0, "width": 3, "height": 6}
+        },
+        {
+          "widget": {
+            "name": "w_cost",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_cost",
+                  "fields": [
+                    {"name": "name", "expression": "`name`"},
+                    {"name": "mtd_usd", "expression": "`mtd_usd`"}
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "frame": {"showTitle": true, "title": "Compute $ month-to-date by app"},
+              "encodings": {
+                "x": {"fieldName": "name", "scale": {"type": "categorical"}, "displayName": "app"},
+                "y": {"fieldName": "mtd_usd", "scale": {"type": "quantitative"}, "displayName": "$ MTD"}
+              }
+            }
+          },
+          "position": {"x": 0, "y": 3, "width": 3, "height": 6}
+        },
+        {
+          "widget": {
+            "name": "w_scans",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_scans",
+                  "fields": [
+                    {"name": "name", "expression": "`name`"},
+                    {"name": "quality_score", "expression": "`quality_score`"},
+                    {"name": "findings_critical", "expression": "`findings_critical`"},
+                    {"name": "findings_high", "expression": "`findings_high`"},
+                    {"name": "deps", "expression": "`deps`"},
+                    {"name": "freshness_score", "expression": "`freshness_score`"}
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 1,
+              "widgetType": "table",
+              "frame": {"showTitle": true, "title": "Source scans — latest per app"},
+              "encodings": {
+                "columns": [
+                  {"fieldName": "name", "displayName": "app"},
+                  {"fieldName": "quality_score", "displayName": "scan score"},
+                  {"fieldName": "findings_critical", "displayName": "critical"},
+                  {"fieldName": "findings_high", "displayName": "high"},
+                  {"fieldName": "deps", "displayName": "deps"},
+                  {"fieldName": "freshness_score", "displayName": "freshness"}
+                ]
+              }
+            }
+          },
+          "position": {"x": 3, "y": 6, "width": 3, "height": 6}
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+resources:
+  jobs:
+    synthetics:
+      name: monitor-synthetics-browser
+      description: >-
+        Optional browser-mode smoke (Playwright) per app. HTTP journeys run inside the
+        monitor app every 30 min (only the app SP's OAuth is accepted by app URLs).
+        PAUSED by default: serverless lacks browser system deps — run manually, or use the
+        custom-container pattern (databricks-apps-e2e-playwright-testing-dab) where DCS exists.
+      schedule:
+        quartz_cron_expression: "0 0 6 * * ?"
+        timezone_id: UTC
+        pause_status: PAUSED
+      max_concurrent_runs: 1
+      queue:
+        enabled: true
+      environments:
+        - environment_key: default
+          spec:
+            client: "2"
+            dependencies:
+              - databricks-sdk>=0.38.0
+              - playwright
+      tasks:
+        - task_key: browser_smoke
+          environment_key: default
+          spark_python_task:
+            python_file: ../jobs/synthetics.py
+            parameters:
+              - "--catalog=${var.catalog}"
+              - "--schema=${var.schema}"

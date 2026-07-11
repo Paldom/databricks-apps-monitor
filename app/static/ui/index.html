@@ -1,0 +1,39 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>UI concepts — Apps Monitor</title>
+<style>
+:root{--font:'Inter',-apple-system,system-ui,sans-serif;--border:#E4E4E7;--muted:#F4F4F5;--text:#18181B;--sub:#52525B;--faint:#A1A1AA}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#FAFAFA;color:var(--text);font-family:var(--font);font-size:14px}
+.wrap{max-width:860px;margin:0 auto;padding:44px 24px 70px}
+h1{font-size:23px;font-weight:700;letter-spacing:-.01em}
+h1 .dot{display:inline-block;width:14px;height:14px;border-radius:4px;background:#FF3621;margin-right:10px}
+.sub{color:var(--sub);font-size:13.5px;margin:8px 0 26px;line-height:1.6}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px}
+a.card{display:block;background:#fff;border:1px solid var(--border);border-radius:12px;padding:18px 20px;text-decoration:none;color:var(--text)}
+a.card:hover{border-color:#D4D4D8;box-shadow:0 6px 18px -4px rgba(0,0,0,.1)}
+a.card.cur{background:#18181B;color:#fff;border-color:#18181B}
+a.card.cur .d{color:#A1A1AA}
+.badge{font-size:10.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:2px 8px;border-radius:5px;background:var(--muted);color:var(--sub)}
+a.card.cur .badge{background:#3F3F46;color:#D4D4D8}
+.nm{font-size:16.5px;font-weight:700;margin:9px 0 5px}
+.d{font-size:12.5px;color:var(--sub);line-height:1.55}
+.note{font-size:12px;color:var(--faint);margin-top:26px;line-height:1.6}
+</style></head>
+<body><div class="wrap">
+  <h1><span class="dot"></span>Apps Monitor — UI concepts</h1>
+  <div class="sub">The exploration is consolidated (storyline/rebuild §2.4): three research rounds and fifteen concepts converged on the production UI plus the <b>Board</b> detail direction. The retired concepts live in git history; the walkthrough recordings remain in <span style="font-family:monospace">walkthrough/</span>.</div>
+  <div class="grid">
+    <a class="card cur" href="../">
+      <span class="badge">Production</span>
+      <div class="nm">Dashboard + Inspect</div>
+      <div class="d">Segmented fleet dashboard (Overview · Catalog · Topology · Governance · Ask Genie) and the per-app Inspect workbench — takeaways-first Overview, plain-language top-level menu, evidence tabs.</div>
+    </a>
+    <a class="card" href="inspect-board.html">
+      <span class="badge">Board (chosen direction)</span>
+      <div class="nm">Tiered board: glance → manage → deep dive</div>
+      <div class="d">One screen, three altitudes: ranked takeaways, a Manage band for the app owner, a Deep-dive band for engineers. The candidate model for the next Inspect redesign with a designer.</div>
+    </a>
+  </div>
+  <div class="note">Design-engagement principles carried forward (rebuild §4): one hierarchy per persona · plain language everywhere · every number is a door · latency sources labeled honestly (real vs probe vs synthetic) · Genie inline as the ask-anywhere affordance.</div>
+</div></body></html>

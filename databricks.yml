@@ -1,0 +1,56 @@
+# Application Insights for Databricks Apps — toolkit bundle.
+# Deploys: UC monitoring schema, the monitor app, and the scheduled jobs.
+# The demo fleet lives in its own bundle: example-apps/databricks.yml.
+bundle:
+  name: apps-observability
+  databricks_cli_version: ">= 0.283.0"
+
+include:
+  - resources/*.yml
+
+sync:
+  exclude:
+    - observ/**
+    - docs/**
+    - example-apps/**
+    - "**/__pycache__/**"
+    - "**/.venv/**"
+    - "*.md"
+
+variables:
+  catalog:
+    description: Unity Catalog catalog holding the monitoring schema
+    default: main
+  schema:
+    description: Schema for OTel telemetry + monitoring tables
+    default: monitor
+  warehouse_id:
+    description: Serverless SQL warehouse used by the monitor app for history queries
+    lookup:
+      warehouse: "Serverless Starter Warehouse"
+  review_model:
+    description: Pay-per-token endpoint used for agentic code reviews
+    default: databricks-claude-sonnet-4-5
+  night_tz:
+    description: Timezone whose 00:00–05:59 window the night auto-stop uses
+    default: Europe/Budapest
+  # identity/instance values live in an uncommitted .env (see .env.example):
+  # export BUNDLE_VAR_<name>=... — "unset" defaults are fail-safe placeholders
+  # (empty strings are rejected by the Apps API for env values).
+  monitor_admins:
+    description: Comma-separated emails allowed to trigger actions (unset = read-only for everyone)
+    default: unset
+  genie_space_id:
+    description: Genie space for the Ask page (unset = feature hidden)
+    default: unset
+  workspaces:
+    description: 'JSON list of federated monitors for the workspace selector: [{"name":...,"url":...}]'
+    default: "[]"
+
+
+targets:
+  dev:
+    default: true
+    # workspace host comes from your CLI profile / DATABRICKS_HOST — pass -p <profile>.
+    # instance values (catalog, admins, genie, workspaces) come from .env via
+    # BUNDLE_VAR_* — see .env.example and scripts/deploy.sh.

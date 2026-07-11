@@ -1,0 +1,185 @@
+# Five demo apps, each engineered to light up one part of the toolkit:
+#   healthy → green baseline        flaky → errors page       slow → latency page
+#   vuln    → security scans        agent → traces + AI cost
+# healthy/ is the canonical demo source; flaky/ and slow/ are file copies made by
+# sync-demos.sh (DABs forbids apps sharing a source_code_path); behavior via DEMO_MODE.
+# The shared OTel env block is repeated per app (anchors don't cross DAB resources) —
+# it is the same contract every real app copies from docs/INSTRUMENTATION.md.
+resources:
+  apps:
+    healthy:
+      name: monitor-demo-healthy
+      description: "Demo fleet: clean fast baseline app"
+      source_code_path: ../healthy
+      config:
+        command: [opentelemetry-instrument, python, main.py]
+        env:
+          - name: DEMO_MODE
+            value: healthy
+          - name: OTEL_SERVICE_NAME
+            value: monitor-demo-healthy
+          - name: OTEL_TRACES_EXPORTER
+            value: otlp
+          - name: OTEL_METRICS_EXPORTER
+            value: otlp
+          - name: OTEL_LOGS_EXPORTER
+            value: otlp
+          - name: OTEL_TRACES_SAMPLER
+            value: always_on
+          - name: OTEL_PYTHON_LOG_CORRELATION
+            value: "true"
+      telemetry_export_destinations:
+        - unity_catalog:
+            logs_table: ${var.catalog}.${var.schema}.otel_logs
+            traces_table: ${var.catalog}.${var.schema}.otel_spans
+            metrics_table: ${var.catalog}.${var.schema}.otel_metrics
+      permissions:
+        - level: CAN_USE
+          group_name: users
+
+    flaky:
+      name: monitor-demo-flaky
+      description: "Demo fleet: ~10% errors + unhandled exceptions"
+      source_code_path: ../flaky
+      config:
+        command: [opentelemetry-instrument, python, main.py]
+        env:
+          - name: DEMO_MODE
+            value: flaky
+          - name: OTEL_SERVICE_NAME
+            value: monitor-demo-flaky
+          - name: OTEL_TRACES_EXPORTER
+            value: otlp
+          - name: OTEL_METRICS_EXPORTER
+            value: otlp
+          - name: OTEL_LOGS_EXPORTER
+            value: otlp
+          - name: OTEL_TRACES_SAMPLER
+            value: always_on
+          - name: OTEL_PYTHON_LOG_CORRELATION
+            value: "true"
+      telemetry_export_destinations:
+        - unity_catalog:
+            logs_table: ${var.catalog}.${var.schema}.otel_logs
+            traces_table: ${var.catalog}.${var.schema}.otel_spans
+            metrics_table: ${var.catalog}.${var.schema}.otel_metrics
+      permissions:
+        - level: CAN_USE
+          group_name: users
+
+    slow:
+      name: monitor-demo-slow
+      description: "Demo fleet: random 0.2–2.5s latency, occasional 8s stalls"
+      source_code_path: ../slow
+      config:
+        command: [opentelemetry-instrument, python, main.py]
+        env:
+          - name: DEMO_MODE
+            value: slow
+          - name: OTEL_SERVICE_NAME
+            value: monitor-demo-slow
+          - name: OTEL_TRACES_EXPORTER
+            value: otlp
+          - name: OTEL_METRICS_EXPORTER
+            value: otlp
+          - name: OTEL_LOGS_EXPORTER
+            value: otlp
+          - name: OTEL_TRACES_SAMPLER
+            value: always_on
+          - name: OTEL_PYTHON_LOG_CORRELATION
+            value: "true"
+      telemetry_export_destinations:
+        - unity_catalog:
+            logs_table: ${var.catalog}.${var.schema}.otel_logs
+            traces_table: ${var.catalog}.${var.schema}.otel_spans
+            metrics_table: ${var.catalog}.${var.schema}.otel_metrics
+      permissions:
+        - level: CAN_USE
+          group_name: users
+
+    vuln:
+      name: monitor-demo-vuln
+      description: "Demo fleet: intentionally vulnerable deps + code smells (scanner bait, inert)"
+      source_code_path: ../vuln
+      config:
+        command: [opentelemetry-instrument, python, main.py]
+        env:
+          - name: OTEL_SERVICE_NAME
+            value: monitor-demo-vuln
+          - name: OTEL_TRACES_EXPORTER
+            value: otlp
+          - name: OTEL_METRICS_EXPORTER
+            value: otlp
+          - name: OTEL_LOGS_EXPORTER
+            value: otlp
+          - name: OTEL_TRACES_SAMPLER
+            value: always_on
+          - name: OTEL_PYTHON_LOG_CORRELATION
+            value: "true"
+      telemetry_export_destinations:
+        - unity_catalog:
+            logs_table: ${var.catalog}.${var.schema}.otel_logs
+            traces_table: ${var.catalog}.${var.schema}.otel_spans
+            metrics_table: ${var.catalog}.${var.schema}.otel_metrics
+      permissions:
+        - level: CAN_USE
+          group_name: users
+
+    agent:
+      name: monitor-demo-agent
+      description: "Demo fleet: MLflow-traced qa + ops agents, gateway-tagged LLM calls, cross-app tool call to the monitor"
+      source_code_path: ../agent
+      config:
+        command: [opentelemetry-instrument, python, main.py]
+        env:
+          - name: SERVING_ENDPOINT_NAME
+            value_from: serving-endpoint
+          - name: MLFLOW_TRACKING_URI
+            value: databricks
+          - name: MLFLOW_EXPERIMENT_ID
+            value_from: experiment
+          # the Apps runtime injects OTEL_EXPORTER_OTLP_ENDPOINT, which makes MLflow
+          # divert traces to the OTel sidecar; dual export sends them to BOTH the
+          # MLflow experiment (agent UI) and otel_spans (UC correlation).
+          # Both spellings set — docs/versions disagree on the variable name.
+          - name: MLFLOW_ENABLE_DUAL_EXPORT
+            value: "true"
+          - name: MLFLOW_TRACE_ENABLE_OTLP_DUAL_EXPORT
+            value: "true"
+          - name: MONITOR_URL
+            value: ${var.monitor_url}
+          - name: SELF_ASK_SECONDS
+            value: "300"
+          - name: OTEL_SERVICE_NAME
+            value: monitor-demo-agent
+          - name: OTEL_TRACES_EXPORTER
+            value: otlp
+          - name: OTEL_METRICS_EXPORTER
+            value: otlp
+          - name: OTEL_LOGS_EXPORTER
+            value: otlp
+          - name: OTEL_TRACES_SAMPLER
+            value: always_on
+          - name: OTEL_PYTHON_LOG_CORRELATION
+            value: "true"
+      resources:
+        - name: serving-endpoint
+          serving_endpoint:
+            name: ${var.llm_endpoint}
+            permission: CAN_QUERY
+        - name: experiment
+          experiment:
+            experiment_id: ${resources.experiments.agent_exp.id}
+            permission: CAN_MANAGE
+        - name: monitor-app
+          app:
+            name: apps-monitor
+            permission: CAN_USE
+      telemetry_export_destinations:
+        - unity_catalog:
+            logs_table: ${var.catalog}.${var.schema}.otel_logs
+            traces_table: ${var.catalog}.${var.schema}.otel_spans
+            metrics_table: ${var.catalog}.${var.schema}.otel_metrics
+      permissions:
+        - level: CAN_USE
+          group_name: users

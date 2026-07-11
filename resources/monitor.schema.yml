@@ -1,0 +1,9 @@
+resources:
+  schemas:
+    monitor_schema:
+      catalog_name: ${var.catalog}
+      name: ${var.schema}
+      comment: >-
+        Apps Monitor data for Databricks Apps: platform OTel telemetry
+        (otel_logs / otel_spans / otel_metrics) plus monitoring tables written by
+        the apps-monitor jobs. Managed by the toolkit bundle.

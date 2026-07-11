@@ -1,0 +1,63 @@
+# Pre-commit hooks. CI mirrors this exact config (.github/workflows/pre-commit.yml);
+# hook revs are kept in lockstep with the pinned dev deps in pyproject.toml
+# (ruff==0.15.20, mypy==2.1.0). Slow checks (pytest --cov) live in CI only.
+#
+# Deployment payloads are excluded so hooks never rewrite what gets shipped:
+# app/static/ (vendored UI), dashboards/ (machine-generated .lvdash.json),
+# observ/ + walkthrough/ (gitignored session artifacts), .databricks/ (bundle state).
+exclude: '^(app/static/|dashboards/|observ/|walkthrough/)|(^|/)\.databricks/'
+
+repos:
+  # Hygiene + validation of YAML/JSON/TOML
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+        args: [--allow-multiple-documents]
+      - id: check-toml
+      - id: check-json
+      - id: check-added-large-files
+      - id: check-merge-conflict
+      - id: detect-private-key
+
+  # Python lint + format; rev matches ruff==0.15.20 in pyproject (required-version pin)
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.20
+    hooks:
+      - id: ruff-check
+        args: [--fix, --exit-non-zero-on-fix]
+      - id: ruff-format
+
+  # Type check the published package only ([tool.mypy] files=["src"]); rev matches
+  # mypy==2.1.0 in pyproject. additional_dependencies = the package's runtime deps,
+  # since mirrors-mypy runs in an isolated env. Full `uv run mypy` runs in CI.
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v2.1.0
+    hooks:
+      - id: mypy
+        files: ^src/
+        additional_dependencies:
+          - opentelemetry-api
+          - starlette
+
+  # Format docs/config; scoped away from Python (ruff owns it) and away from
+  # Databricks bundle/deployment files so their YAML/JSON stays byte-stable.
+  - repo: https://github.com/rbubley/mirrors-prettier
+    rev: v3.8.2
+    hooks:
+      - id: prettier
+        types_or: [yaml, markdown, json]
+        exclude: '^(databricks\.yml|resources/|example-apps/|app/|jobs/|templates/|sdk/)'
+
+  - repo: https://github.com/abravalheri/validate-pyproject
+    rev: v0.25
+    hooks:
+      - id: validate-pyproject
+        additional_dependencies: ["validate-pyproject-schema-store[all]"]
+
+  - repo: https://github.com/python-jsonschema/check-jsonschema
+    rev: 0.37.1
+    hooks:
+      - id: check-github-workflows

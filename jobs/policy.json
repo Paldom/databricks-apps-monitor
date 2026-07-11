@@ -1,0 +1,17 @@
+{
+  "comment": "Org package policy checked by the source scan. denylist: never allowed (finding severity high). min_versions: pins below this are flagged (medium). allowlist_only=false means anything not denied is allowed.",
+  "allowlist_only": false,
+  "denylist": [
+    {"package": "pycrypto", "reason": "abandoned since 2013 — use pycryptodome"},
+    {"package": "flask-cors", "reason": "history of CORS bypass CVEs — approved alternative: starlette CORSMiddleware"},
+    {"package": "pickle5", "reason": "unsafe deserialization surface"},
+    {"package": "python-jose", "reason": "unmaintained JOSE implementation — use pyjwt"}
+  ],
+  "min_versions": {
+    "requests": "2.31.0",
+    "urllib3": "2.0.0",
+    "aiohttp": "3.10.0",
+    "jinja2": "3.1.3",
+    "cryptography": "42.0.0"
+  }
+}

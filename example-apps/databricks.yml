@@ -1,0 +1,31 @@
+# Demo fleet — the "army" of example apps the monitoring toolkit tracks.
+# Each app exports OTel telemetry into the shared monitoring schema
+# (deploy the root apps-monitoring bundle first so the schema exists).
+bundle:
+  name: obs-demo-fleet
+  databricks_cli_version: ">= 0.283.0"
+
+include:
+  - resources/*.yml
+
+sync:
+  exclude:
+    - "**/__pycache__/**"
+
+variables:
+  catalog:
+    default: main
+  schema:
+    default: monitor
+  llm_endpoint:
+    description: Pay-per-token endpoint used by monitor-demo-agent
+    default: databricks-meta-llama-3-3-70b-instruct
+  monitor_url:
+    description: Monitor app URL the demo agent calls as a tool (set via .env)
+    default: unset
+
+targets:
+  dev:
+    default: true
+    # workspace host comes from your CLI profile / DATABRICKS_HOST — pass -p <profile>.
+    # catalog + monitor_url come from .env via BUNDLE_VAR_* — see ../.env.example

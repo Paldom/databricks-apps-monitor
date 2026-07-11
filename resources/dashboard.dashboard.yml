@@ -1,0 +1,9 @@
+# AI/BI (Lakeview) dashboard over the gold views — versioned in the repo, deployed by
+# the bundle (no UI drift). Note: DABs does not interpolate variables inside the
+# .lvdash.json artifact, so its queries name the catalog.schema literally.
+resources:
+  dashboards:
+    fleet_monitor:
+      display_name: "Apps Monitor — fleet"
+      file_path: ../dashboards/fleet.lvdash.json
+      warehouse_id: ${var.warehouse_id}

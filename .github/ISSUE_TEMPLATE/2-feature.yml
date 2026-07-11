@@ -1,0 +1,31 @@
+name: Feature request
+description: Propose a new capability or improvement for Apps Monitor.
+title: "[Feature]: "
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem to solve
+      description: What can't you monitor, see, or automate today? Describe the problem, not the solution.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: How you'd like it to work — UI, job, table, alert, etc.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: contribution
+    attributes:
+      label: Are you willing to contribute this feature?
+      options:
+        - Yes, I can open a PR
+        - Yes, with guidance
+        - No
+    validations:
+      required: true

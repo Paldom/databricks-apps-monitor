@@ -1,0 +1,133 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Board — detail view</title>
+<style id="base"></style>
+<style>
+.wrap{max-width:1240px;margin:0 auto;padding:18px 24px 80px}
+/* ---- tier 1: at a glance ---- */
+.hero{background:#fff;border:1px solid var(--border);border-radius:12px;padding:18px 22px;margin-bottom:26px}
+.hero .toprow{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+.hero h1{font-size:20px;font-weight:700;letter-spacing:-.01em}
+.hero .open{font-size:12.5px;color:#2563EB;text-decoration:none}
+.hero .stats{display:flex;gap:0;flex-wrap:wrap;margin:12px 0 4px;border-top:1px solid var(--muted);padding-top:12px}
+.hero .st{padding:0 22px;border-right:1px solid var(--muted);min-width:120px}
+.hero .st:first-child{padding-left:0}.hero .st:last-child{border-right:none}
+.hero .st .v{font-size:19px;font-weight:700;font-variant-numeric:tabular-nums}
+.hero .st .l{font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--faint);margin-top:2px}
+.take{margin-top:14px;display:grid;gap:7px}
+.take .tk{display:flex;align-items:baseline;gap:10px;font-size:14.5px;font-weight:550;cursor:pointer;padding:9px 13px;border:1px solid var(--border);border-radius:9px;background:#FAFAFA;line-height:1.45}
+.take .tk:hover{border-color:#D4D4D8;background:#fff}
+.take .tk .ic{font-size:15px}
+.take .tk .go{margin-left:auto;font-size:11.5px;color:#2563EB;font-weight:600;white-space:nowrap}
+.take .tk .sev-ic{width:8px;height:8px;border-radius:50%;flex:none;align-self:center}
+.take .tk.bad .sev-ic{background:#DC2626}.take .tk.warn .sev-ic{background:#CA8A04}.take .tk.good .sev-ic{background:#16A34A}
+/* ---- tier bands ---- */
+.band{display:flex;align-items:baseline;gap:12px;margin:26px 0 10px}
+.band h2{font-size:13px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text)}
+.band .who{font-size:12px;color:var(--faint)}
+.band .rule{flex:1;height:1px;background:var(--border)}
+.board{display:grid;grid-template-columns:repeat(auto-fill,minmax(370px,1fr));gap:12px;align-items:start}
+.panel{background:#fff;border:1px solid var(--border);border-radius:10px;overflow:hidden;cursor:pointer;transition:box-shadow .12s,border-color .12s}
+.panel:hover{border-color:#D4D4D8;box-shadow:0 4px 14px -2px rgba(0,0,0,.08)}
+.panel .ph{display:flex;align-items:baseline;gap:8px;padding:11px 14px;border-bottom:1px solid var(--muted)}
+.panel .ph b{font-size:13.5px;white-space:nowrap}.panel .ph span.q{font-size:11.5px;color:var(--faint);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.panel .ph .tog{margin-left:auto;font-size:11.5px;color:#2563EB;font-weight:600;white-space:nowrap}
+.panel .pb{padding:6px 14px 12px;max-height:210px;overflow:hidden;position:relative}
+.panel .pb::after{content:'';position:absolute;left:0;right:0;bottom:0;height:36px;background:linear-gradient(transparent,#fff)}
+.panel.open{grid-column:1/-1;order:-1;cursor:default;border-color:#18181B;box-shadow:0 8px 26px -6px rgba(0,0,0,.14)}
+.panel.open .pb{max-height:none}.panel.open .pb::after{display:none}
+.panel .pb table.t th,.panel .pb table.t td{padding:5px 8px}
+.panel.flash{animation:flash 1.2s ease-out}
+@keyframes flash{0%{box-shadow:0 0 0 3px rgba(37,99,235,.35)}100%{box-shadow:0 0 0 3px rgba(37,99,235,0)}}
+</style></head>
+<body>
+<header id="hdr"></header>
+<div class="wrap">
+  <div class="hero" id="hero"><div class="hint">loading…</div></div>
+  <div class="band"><h2>Manage</h2><span class="who">for the app owner — health, spend, sign-off, access. No telemetry digging.</span><span class="rule"></span></div>
+  <div class="board" id="manage"></div>
+  <div class="band"><h2>Deep dive</h2><span class="who">for engineers — failures, traffic, logs and outbound calls, with links to raw traces.</span><span class="rule"></span></div>
+  <div class="board" id="deep"></div>
+</div>
+<script type="module">
+import {SECTIONS,SECTION,appList,headerHtml,APP_CSS,qp,setqp,esc,fmt,statusColor,scoreColor,fetchS} from './_app.js';
+document.getElementById('base').textContent=APP_CSS;
+let APPS=[],APP='',OPEN='';
+const MANAGE=['code','money','people','uptime','history'];
+const DEEP=['broke','speed','requests','logs','outside'];
+
+function stOf(a){return a.status||((window.__fleet||[]).find(x=>x.name===APP)||{}).status||''}
+async function hero(){
+  const [ov,a]=await Promise.all([fetchS(APP,'overview'),fetchS(APP,'')]);
+  if(APP!==qp().app&&qp().app)return;
+  const st=stOf(a),s=ov.scan,r=ov.review,m=ov.mtd,u=ov.usage,cfg=ov.config;
+  const firing=(ov.events||[]).filter(e=>e.state==='firing');
+  // ranked takeaways: worst first, max 3, each a door to its panel
+  const tk=[];
+  if(st&&st!=='ok')tk.push(['bad','🔴',`App is <b>${st.toUpperCase()}</b> — probes are failing`, 'uptime']);
+  if(r&&r.verdict==='reject')tk.push(['bad','⚖️',`Would <b>not pass production review</b> — ${r.score_overall}/10: “${esc((r.summary||'').slice(0,90))}…”`,'code']);
+  if(s&&+s.findings_critical>0)tk.push(['bad','🛡',`<b>${s.findings_critical} critical</b> and ${s.findings_high} high security findings — scan ${s.quality_score}/100`,'code']);
+  else if(s&&+s.findings_high>0)tk.push(['warn','🛡',`<b>${s.findings_high} high</b> security findings — scan ${s.quality_score}/100`,'code']);
+  if(firing.length)tk.push(['warn','🔔',`<b>${firing.length} alert${firing.length>1?'s':''} firing</b> — ${esc(firing.map(e=>e.rule).join(', ')).slice(0,80)}`,'history']);
+  if(cfg&&+cfg.budget_usd_month&&m&&+m.mtd_usd>=+cfg.budget_usd_month)tk.push(['bad','💸',`<b>Over budget</b> — $${fmt(m.mtd_usd,2)} of $${fmt(cfg.budget_usd_month,0)}`,'money']);
+  if((a.p95_ms||0)>2500)tk.push(['warn','🐢',`Slow — p95 <b>${fmt(a.p95_ms)} ms</b> against a 2.5 s budget`,'speed']);
+  if(!tk.length)tk.push(['good','✅','All clear — healthy, reviewed and on budget. Nothing needs you.','history']);
+  document.getElementById('hero').innerHTML=`
+    <div class="toprow"><h1>${esc(APP)}</h1>
+      <a class="open" href="${esc((window.__fleet||[]).find(x=>x.name===APP)?.url||'#')}" target="_blank">open app ↗</a>
+      <span style="margin-left:auto;font-size:11.5px;color:var(--faint)">At a glance — the three things that matter most right now</span></div>
+    <div class="stats">
+      ${[['<span style="color:'+statusColor(st)+'">'+(st||'–').toUpperCase()+'</span>','status'],
+         [fmt(a.uptime_24h,1)+'%','uptime 24h'],
+         [fmt(a.p95_ms)+' ms','p95'],
+         [s?`<span style="color:${scoreColor(+s.quality_score)}">${s.quality_score}/100</span>`:'–','code score'],
+         [r?(r.verdict==='reject'?'✗':r.verdict==='approve'?'✓':'⚠')+' '+r.verdict:'–','review'],
+         [m?'$'+fmt(m.mtd_usd,2):'–','spend MTD'],
+         [u?fmt(u.peak_dau):'–','peak DAU 7d']].map(([v,l])=>`<div class="st"><div class="v">${v}</div><div class="l">${l}</div></div>`).join('')}
+    </div>
+    <div class="take">${tk.slice(0,3).map(([cls,ic,txt,target])=>`
+      <div class="tk ${cls}" data-t="${target}"><span class="sev-ic"></span><span class="ic">${ic}</span><span>${txt}</span><span class="go">see the panel ↓</span></div>`).join('')}
+    </div>`;
+  document.querySelectorAll('.take .tk').forEach(t=>t.onclick=()=>focusPanel(t.dataset.t));
+}
+function focusPanel(id){
+  OPEN=id;setqp({app:APP,open:id});
+}
+function panelHtml(s,open){
+  return `<div class="panel ${open?'open':''}" data-s="${s.id}">
+    <div class="ph"><b>${s.label}</b><span class="q">${s.question}</span><span class="tog">${open?'collapse ✕':'expand ↗'}</span></div>
+    <div class="pb" data-s="${s.id}"><div class="hint">loading…</div></div></div>`;
+}
+async function show(){
+  document.getElementById('hdr').innerHTML=headerHtml('Board',APP,APPS);
+  document.getElementById('appsel').onchange=e=>{OPEN='';setqp({app:e.target.value});};
+  document.getElementById('manage').innerHTML=MANAGE.map(id=>panelHtml(SECTION[id],id===OPEN)).join('');
+  document.getElementById('deep').innerHTML=DEEP.map(id=>panelHtml(SECTION[id],id===OPEN)).join('');
+  document.querySelectorAll('.panel').forEach(p=>{
+    p.querySelector('.ph').onclick=e=>{e.stopPropagation();OPEN=OPEN===p.dataset.s?'':p.dataset.s;setqp({app:APP,open:OPEN});};
+    p.onclick=()=>{if(!p.classList.contains('open')){OPEN=p.dataset.s;setqp({app:APP,open:OPEN});}};
+  });
+  hero();
+  const app=APP;
+  [...MANAGE,...DEEP].forEach(async id=>{
+    const html=await SECTION[id].load(app);
+    if(app!==APP)return;
+    const el=document.querySelector(`.pb[data-s="${id}"]`);
+    if(el)el.innerHTML=html;
+  });
+  if(OPEN){const p=document.querySelector(`.panel[data-s="${OPEN}"]`);
+    if(p){p.classList.add('flash');p.scrollIntoView({behavior:'smooth',block:'start'});}}
+  document.onkeydown=e=>{if(e.key==='Escape'&&OPEN){OPEN='';setqp({app:APP});}};
+}
+function route(){const q=qp();const app=q.app||APPS[0];const changed=app!==APP;APP=app;OPEN=q.open||'';
+  if(changed)show();else{
+    document.querySelectorAll('.panel').forEach(p=>{
+      const open=p.dataset.s===OPEN;
+      p.classList.toggle('open',open);
+      p.querySelector('.tog').textContent=open?'collapse ✕':'expand ↗';
+      if(open){p.classList.remove('flash');void p.offsetWidth;p.classList.add('flash');p.scrollIntoView({behavior:'smooth',block:'start'});}
+    });
+  }}
+addEventListener('hashchange',route);
+appList().then(l=>{APPS=l;APP=qp().app||APPS[0];OPEN=qp().open||'';show();});
+</script></body></html>

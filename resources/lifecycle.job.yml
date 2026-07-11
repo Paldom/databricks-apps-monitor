@@ -1,0 +1,77 @@
+resources:
+  jobs:
+    app_stopper:
+      name: monitor-app-stopper
+      description: >-
+        Cost guardrail (hourly): stops apps per their auto-stop config — night window
+        or idle N hours without real requests. Also serves manual stop/start requests
+        from the monitor's Ops tab (job parameters action + app).
+      schedule:
+        quartz_cron_expression: "0 5 * * * ?"
+        timezone_id: UTC
+        pause_status: UNPAUSED
+      max_concurrent_runs: 2
+      queue:
+        enabled: true
+      environments:
+        - environment_key: default
+          spec:
+            client: "2"
+            dependencies:
+              - databricks-sdk>=0.38.0
+      parameters:
+        - name: action
+          default: ""
+        - name: app
+          default: ""
+      tasks:
+        - task_key: stopper
+          environment_key: default
+          spark_python_task:
+            python_file: ../jobs/app_stopper.py
+            parameters:
+              - "--catalog=${var.catalog}"
+              - "--schema=${var.schema}"
+              - "--tz=${var.night_tz}"
+              - "--action={{job.parameters.action}}"
+              - "--app={{job.parameters.app}}"
+              - "--jobs-dir=${workspace.file_path}/jobs"
+
+    provision_app:
+      name: monitor-provision-app
+      description: >-
+        Provisions a new tagged Databricks App from the toolkit template (workspace
+        files + app + telemetry export + governance tags). Triggered from the monitor's
+        Governance page.
+      max_concurrent_runs: 2
+      queue:
+        enabled: true
+      environments:
+        - environment_key: default
+          spec:
+            client: "2"
+            dependencies:
+              - databricks-sdk>=0.38.0
+      parameters:
+        - name: app_name
+          default: ""
+        - name: team
+          default: "unassigned"
+        - name: cost_center
+          default: "unassigned"
+        - name: env
+          default: "dev"
+      tasks:
+        - task_key: provision
+          environment_key: default
+          spark_python_task:
+            python_file: ../jobs/provision.py
+            parameters:
+              - "--catalog=${var.catalog}"
+              - "--schema=${var.schema}"
+              - "--app-name={{job.parameters.app_name}}"
+              - "--team={{job.parameters.team}}"
+              - "--cost-center={{job.parameters.cost_center}}"
+              - "--env={{job.parameters.env}}"
+              - "--templates-dir=${workspace.file_path}/templates"
+              - "--jobs-dir=${workspace.file_path}/jobs"

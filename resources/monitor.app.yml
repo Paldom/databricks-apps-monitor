@@ -1,0 +1,78 @@
+resources:
+  apps:
+    monitor:
+      name: apps-monitor
+      description: "Application Insights for Databricks Apps — live fleet board, telemetry, scans, reviews, cost"
+      source_code_path: ../app
+      # Runtime config (command + env) lives here so instance values can come from
+      # bundle variables (.env → BUNDLES_VAR_*) instead of a committed app.yaml.
+      config:
+        command: [opentelemetry-instrument, python, main.py]
+        env:
+          - name: DATABRICKS_WAREHOUSE_ID
+            value_from: sql-warehouse
+          - name: INVENTORY_JOB_ID
+            value_from: inventory-job
+          - name: REVIEW_JOB_ID
+            value_from: review-job
+          - name: STOPPER_JOB_ID
+            value_from: stopper-job
+          - name: PROVISION_JOB_ID
+            value_from: provision-job
+          - name: MONITOR_CATALOG
+            value: ${var.catalog}
+          - name: MONITOR_SCHEMA
+            value: ${var.schema}
+          - name: MONITOR_ADMINS
+            value: ${var.monitor_admins}
+          - name: MONITOR_GENIE_SPACE_ID
+            value: ${var.genie_space_id}
+          - name: MONITOR_WORKSPACES
+            value: ${var.workspaces}
+          - name: OTEL_SERVICE_NAME
+            value: apps-monitor
+          - name: OTEL_TRACES_EXPORTER
+            value: otlp
+          - name: OTEL_METRICS_EXPORTER
+            value: otlp
+          - name: OTEL_LOGS_EXPORTER
+            value: otlp
+          # OTLP endpoint/protocol intentionally NOT pinned — the Apps runtime injects
+          # the correct sidecar values when telemetry export is configured.
+          - name: OTEL_TRACES_SAMPLER
+            value: always_on
+          - name: OTEL_PYTHON_LOG_CORRELATION
+            value: "true"
+          - name: OTEL_METRIC_EXPORT_INTERVAL
+            value: "30000"
+      # The monitor is fleet app #1: its own telemetry (incl. probe spans/metrics)
+      # lands in the same shared UC tables every fleet app exports to.
+      telemetry_export_destinations:
+        - unity_catalog:
+            logs_table: ${resources.schemas.monitor_schema.id}.otel_logs
+            traces_table: ${resources.schemas.monitor_schema.id}.otel_spans
+            metrics_table: ${resources.schemas.monitor_schema.id}.otel_metrics
+      resources:
+        - name: sql-warehouse
+          sql_warehouse:
+            id: ${var.warehouse_id}
+            permission: CAN_USE
+        - name: inventory-job
+          job:
+            id: ${resources.jobs.inventory_scan.id}
+            permission: CAN_MANAGE_RUN
+        - name: review-job
+          job:
+            id: ${resources.jobs.llm_review.id}
+            permission: CAN_MANAGE_RUN
+        - name: stopper-job
+          job:
+            id: ${resources.jobs.app_stopper.id}
+            permission: CAN_MANAGE_RUN
+        - name: provision-job
+          job:
+            id: ${resources.jobs.provision_app.id}
+            permission: CAN_MANAGE_RUN
+      permissions:
+        - level: CAN_USE
+          group_name: users
