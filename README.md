@@ -1,23 +1,18 @@
 # <img src="app/static/icon.svg" alt="pulse icon" width="34" align="top"> databricks-apps-monitor
 
 **Apps Monitor — fleet health, cost, usage, and code risk for every Databricks App you run, in one place.**
-It answers the questions you actually ask: _Is it up? Is it slow? What failed? What does it
+_Is it up? Is it slow? What failed? What does it
 cost — per app, per team, per user? Is the code production-ready?_
 
 [![CI](https://github.com/Paldom/databricks-apps-monitor/actions/workflows/ci.yml/badge.svg)](https://github.com/Paldom/databricks-apps-monitor/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE) ![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)
 
-<!-- GitHub renders inline video players only for web-editor uploads (user-attachments).
-     For a true inline player: edit this README on github.com, drag apps-monitor-tour.mp4
-     into the editor, and replace the link below with the generated URL. Until then the
-     GIF preview autoplays and links to the full-quality mp4. -->
+<!-- for an inline player, drag apps-monitor-tour.mp4 into the web editor and use that URL -->
 
-[![One-minute product tour — every screen on live data](docs/tour-preview.gif)](apps-monitor-tour.mp4)
+[![Product tour](docs/tour-preview.gif)](apps-monitor-tour.mp4)
 
-> 🎬 **[Full-quality tour (mp4, 60 s)](apps-monitor-tour.mp4)** — fleet board, cost ranking,
-> dependency topology, alerts, governance rules, and a full drill-down into one app
-> (errors → traces → code & security → cost → operations).
+[Watch the tour in full quality.](apps-monitor-tour.mp4)
 
-Think Azure Application Insights, rebuilt on Databricks primitives — **nothing to host, no
+Azure Application Insights, rebuilt on Databricks primitives — **nothing to host, no
 collector, no vendor**. Apps ship OpenTelemetry through the platform into Unity Catalog;
 serverless jobs add scans, LLM code review, and billing math; one FastAPI app serves the
 whole picture. Existing apps are monitored with **zero changes**:
@@ -31,26 +26,24 @@ scripts/deploy.sh monitor -t dev -p <profile>       # sources .env, deploys, pri
 
 ## Features
 
-- **🩺 Reliability** — live fleet board (60 s probes: availability, p95, error rate, TTFB),
-  synthetic journeys, capacity probing, incident timeline, anomaly detection vs baselines.
-- **🔎 Deep diagnostics** — per-route request/latency/error telemetry, log explorer,
+- **Reliability** — live fleet board (reachability probes, real-traffic p95, error rate),
+  synthetic journeys, incident timeline, anomaly detection vs baselines.
+- **Diagnostics** — per-route request/latency/error telemetry, log explorer,
   fingerprinted error groups, dependency latency, full trace waterfalls with correlated logs.
-- **🤖 GenAI observability** — agent runs and app requests in **one waterfall**
+- **GenAI observability** — agent runs and app requests in **one waterfall**
   (OTel ⟷ MLflow, cross-app), token/model trends, LLM error taxonomy, daily LLM-judge
   quality evals, in-app ★ feedback.
-- **💰 FinOps** — exact compute $ per app from `system.billing.usage`, AI tokens attributed
-  from the app's own spans (not estimates), budgets with burn alerts and **hard auto-stop**,
-  30-day forecasts, chargeback by team.
-- **🛡 Code risk** — source scans on every deployment (CVEs, secrets, smells, policy),
-  Dependabot-style package analysis for Python **and** npm, and an agentic **CTO-style code
-  review** with verdict + scores.
-- **🏛 Governance** — inventory with automated grants, tagging, compliance export, audit
+- **FinOps** — compute $ per app from `system.billing.usage` (list price), AI tokens from
+  the app's own spans, budgets with burn alerts and auto-stop, forecasts, chargeback by team.
+- **Code risk** — source scans on every deployment (CVEs, secrets, smells, policy),
+  package analysis for Python and npm, and an advisory LLM code review with verdict + scores.
+- **Governance** — inventory with automated grants, tagging, compliance export, audit
   trail, permission-drift alerts, one-click provisioning, embedded Genie Q&A, versioned
   AI/BI dashboard, dead-man watchdog.
 
 Full capability → mechanism → table reference: [docs/FEATURES.md](docs/FEATURES.md).
 A five-app **demo fleet** (healthy / flaky / slow / vuln / agent) exercises everything,
-including a CVE-bait app the LLM reviewer rejects and two real MLflow-traced agents.
+including a CVE-bait app the reviewer rejects and two MLflow-traced agents.
 
 ## Get started
 
@@ -118,7 +111,7 @@ binding — that's what unlocks the unified waterfalls below. Optional: a synthe
 
 ## Who it's for
 
-| Persona                     | The question                                         | Where they live                                          |
+| Persona                     | The question                                         | Where                                                    |
 | --------------------------- | ---------------------------------------------------- | -------------------------------------------------------- |
 | **Tech lead / eng manager** | "Is my fleet OK — would I sign off this app?"        | Dashboard, per-app scorecard, review verdicts            |
 | **Platform / ops**          | "What needs me now, what can I automate?"            | Alert center, anomaly + drift alerts, auto-stop policies |
@@ -156,7 +149,7 @@ flowchart LR
 
     SRC["Apps API · workspace files<br/>system tables · FMAPI"]:::ext
 
-    A -- "OTLP → platform sidecar<br/>(Zerobus, no collector)" --> T
+    A -- "OTLP → platform sidecar" --> T
     M -- "probes /healthz + journeys<br/>(app SP OAuth, 60 s)" --> A
     M -- "SQL on demand<br/>(serverless warehouse)" --> T
     M -- SQL --> G
@@ -173,7 +166,7 @@ reads** (jobs run as the deployer; the app's service principal gets narrow grant
 bootstrapped by the inventory job itself — permissions table in
 [docs/FEATURES.md](docs/FEATURES.md#permissions-model)).
 
-### The correlation model (why the numbers can be trusted)
+### Correlation model
 
 Everything joins on a small, deliberate key set:
 
@@ -185,11 +178,10 @@ Everything joins on a small, deliberate key set:
 | `session.id`, `user.id_hash`             | middleware (cookie + hashed principal) | usage + per-user cost share, pseudonymous                    |
 | `gen_ai.usage.*`, `gen_ai.request.model` | the app's own LLM spans                | tokens → app/request/session/user — **exact, not estimated** |
 
-The FinOps punchline: token counts originate in the app's own telemetry, where the LLM
-call happens — so AI cost attribution needs no guesswork. The cost job lines this
-**bottom-up** signal up against **top-down** billing (`system.billing.usage` × list
-prices) in one `costs_daily` row per app per day; budgets, forecasts, and chargeback all
-read that single reconciled surface.
+Token counts originate in the app's own telemetry, where the LLM call happens. The cost
+job writes this bottom-up signal next to top-down billing (`system.billing.usage` × list
+prices) in one `costs_daily` row per app per day; budgets, forecasts, and chargeback read
+that surface.
 
 ### Unified tracing: OTel ⟷ MLflow
 
@@ -211,13 +203,13 @@ export away from the experiment; with it you get both worlds and one join key en
 Stopped apps still answer HTTP 200 (detection uses the Apps API, not status codes); the
 apps proxy intercepts `GET /healthz`; job-runtime tokens are rejected by app URLs (so
 probes run _inside_ the monitor under its own service principal); MLflow trace content is
-read via REST because app containers can't reach artifact storage. Full learnings:
+read via REST because app containers can't reach artifact storage. Details:
 [docs/BUILDLOG.md](docs/BUILDLOG.md).
 
 ## Project status & layout
 
-Actively developed — 21 deployed-and-verified iterations against a real workspace
-([docs/BUILDLOG.md](docs/BUILDLOG.md)); metric-by-metric honesty audit in
+Developed and verified against a live workspace — engineering log in
+[docs/BUILDLOG.md](docs/BUILDLOG.md), metric audit in
 [docs/METRICS-AUDIT.md](docs/METRICS-AUDIT.md). The repo is two bundles: the toolkit
 (`databricks.yml`: app + jobs + schema + dashboard + alerts) and `example-apps/` (the demo
 fleet), plus the middleware as both a wheel (`src/monitor_middleware/`) and a copy-in file
