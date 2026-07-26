@@ -4,7 +4,7 @@
   "description": "Demo bait: intentionally outdated npm deps with known CVEs (never installed or executed)",
   "dependencies": {
     "lodash": "4.17.15",
-    "axios": "0.21.0",
+    "axios": "0.33.0",
     "minimist": "1.2.0",
     "node-fetch": "2.6.0"
   },
