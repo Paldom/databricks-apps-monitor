@@ -1,7 +1,7 @@
 fastapi
 uvicorn
 httpx
-databricks-sdk>=0.38.0
+databricks-sdk>=0.139.0
 opentelemetry-distro
 opentelemetry-exporter-otlp
 opentelemetry-instrumentation-fastapi
