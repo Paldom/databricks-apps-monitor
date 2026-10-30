@@ -105,4 +105,4 @@ docstring-code-format = true
 # Freshness buffer: resolver ignores anything published after this timestamp,
 # guarding `uv lock` against just-published (possibly malicious) releases.
 # Bump on release; Dependabot cooldown covers the bot side (advisories bypass it).
-exclude-newer = "2026-07-03T00:00:00Z"
+exclude-newer = "2026-10-23T00:00:00Z"
