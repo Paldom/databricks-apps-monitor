@@ -1,0 +1,31 @@
+resources:
+  jobs:
+    slo_eval:
+      name: monitor-slo-eval
+      description: Five-minute SLIs, multi-window burn alerts and sustained telemetry-health checks.
+      performance_target: PERFORMANCE_OPTIMIZED
+      tags:
+        aidevkit_project: ai-dev-kit
+      schedule:
+        quartz_cron_expression: "0 0/15 * * * ?"
+        timezone_id: UTC
+        pause_status: UNPAUSED
+      max_concurrent_runs: 1
+      queue:
+        enabled: true
+      environments:
+        - environment_key: default
+          spec:
+            client: "2"
+            dependencies:
+              - databricks-sdk>=0.38.0
+              - httpx
+      tasks:
+        - task_key: evaluate
+          environment_key: default
+          spark_python_task:
+            python_file: ../jobs/slo_eval.py
+            parameters:
+              - "--catalog=${var.catalog}"
+              - "--schema=${var.schema}"
+              - "--jobs-dir=${workspace.file_path}/jobs"

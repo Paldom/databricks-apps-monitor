@@ -19,6 +19,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 @pytest.fixture()
 def service(monkeypatch):
+    monkeypatch.syspath_prepend(str(ROOT))
     # These are deployment dependencies, deliberately absent from the SDK's dev environment.
     for name in (
         "httpx",
@@ -41,13 +42,23 @@ def service(monkeypatch):
     for name, directory in (
         ("schema_utils", "jobs"),
         ("alert_state", "jobs"),
+        ("ops_tables", "jobs"),
         ("telemetry_sql", "jobs"),
+        ("telemetry_health", "jobs"),
+        ("slo_eval", "jobs"),
+        ("self_meter", "jobs"),
+        ("model_usage", "jobs"),
+        ("app_stopper", "jobs"),
+        ("inventory_scan", "jobs"),
         ("source_scan", "jobs"),
         ("gold_views", "jobs"),
         ("cost_rollup", "jobs"),
         ("housekeeping", "jobs"),
+        ("mutes", "app"),
+        ("auth", "app"),
         ("alerts", "app"),
         ("queries", "app"),
+        ("routes_ops", "app"),
         ("synthetic", "app"),
         ("mlflow_traces", "app"),
         ("main", "app"),
@@ -127,7 +138,15 @@ def test_resolutions_respect_rule_and_successful_app_scope(service):
 def alert_spark(opened):
     spark = MagicMock()
     spark.table.return_value.columns = ["workspace_id", "muted", "incident_id"]
-    spark.sql.return_value.collect.return_value = [{"rule": r, "app": a} for r, a in opened]
+
+    def result(sql, **_kwargs):
+        frame = MagicMock()
+        frame.collect.return_value = (
+            [] if "alert_mutes" in sql else [{"rule": r, "app": a} for r, a in opened]
+        )
+        return frame
+
+    spark.sql.side_effect = result
     return spark
 
 

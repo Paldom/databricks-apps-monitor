@@ -42,7 +42,7 @@ CREATE TABLE IF NOT EXISTS {fq}.apps_inventory (
   sp_client_id STRING,
   source_code_path STRING,
   deployment_id STRING,
-  resources_json STRING, workspace_id STRING
+  resources_json STRING, workspace_id STRING, sampler_ratio DOUBLE
 ) COMMENT 'Hourly snapshot of every Databricks App in the workspace (monitor-inventory-scan job)'
 """
 
@@ -69,6 +69,7 @@ def app_row(a, ts: datetime, workspace_id: str) -> dict:
         "source_code_path": dep.source_code_path if dep else None,
         "deployment_id": dep.deployment_id if dep else None,
         "resources_json": json.dumps([r.as_dict() for r in (a.resources or [])]),
+        "sampler_ratio": None,
     }
 
 
@@ -89,6 +90,9 @@ def grant_monitor_access(
         # the monitor appends its probe-rule alert transitions itself
         f"GRANT MODIFY ON TABLE `{catalog}`.`{schema}`.`alert_events` TO `{sp}`",
         f"GRANT MODIFY ON TABLE `{catalog}`.`{schema}`.`app_config` TO `{sp}`",
+        f"GRANT MODIFY ON TABLE `{catalog}`.`{schema}`.`alert_mutes` TO `{sp}`",
+        f"GRANT MODIFY ON TABLE `{catalog}`.`{schema}`.`slo_specs` TO `{sp}`",
+        f"GRANT MODIFY ON TABLE `{catalog}`.`{schema}`.`monitor_audit` TO `{sp}`",
     ):
         try:
             spark.sql(stmt)
@@ -141,7 +145,9 @@ def grant_monitor_access(
 
 
 def main() -> None:
+    from ops_tables import ensure_ops_tables
     from schema_utils import ensure_columns, workspace_column
+    from telemetry_health import sampler_ratio
 
     p = argparse.ArgumentParser()
     p.add_argument("--catalog", required=True)
@@ -160,11 +166,20 @@ def main() -> None:
 
     spark.sql(INVENTORY_DDL.format(fq=fq))
     spark.sql(ALERT_DDL.format(fq=fq))
+    ensure_ops_tables(spark, fq)
+    workspace_column(spark, f"{fq}.monitor_audit", str(w.get_workspace_id()))
     ensure_columns(spark, f"{fq}.alert_events", {"muted": "BOOLEAN", "incident_id": "STRING"})
     workspace_column(spark, f"{fq}.alert_events", str(w.get_workspace_id()))
     ws = str(w.get_workspace_id())
     workspace_column(spark, f"{fq}.apps_inventory", ws)
+    ensure_columns(spark, f"{fq}.apps_inventory", {"sampler_ratio": "DOUBLE"})
     rows = [app_row(a, ts, ws) for a in apps]
+    for row in rows:
+        try:
+            raw = w.api_client.do("GET", f"/api/2.0/apps/{row['name']}")
+            row["sampler_ratio"] = sampler_ratio(raw.get("config"))
+        except Exception as e:  # noqa: BLE001 — config may not be exposed by the Apps API
+            print(f"sampler config unavailable for {row['name']}: {type(e).__name__}")
     if rows:
         df = spark.createDataFrame(
             rows, schema=spark.table(f"{args.catalog}.{args.schema}.apps_inventory").schema

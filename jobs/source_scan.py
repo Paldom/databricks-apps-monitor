@@ -19,6 +19,7 @@ import base64
 import json
 import re
 import subprocess
+import sys
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -422,12 +423,19 @@ def emit_alerts(
     *,
     owned_rules: tuple[str, ...],
     evaluated_apps: set[str] | None = None,
+    unknown_keys: set[tuple[str, str]] | None = None,
 ) -> None:
     """Persist transitions; partial scans can only clear apps they actually evaluated."""
     from alert_state import resolving_keys
     from schema_utils import ensure_columns, workspace_column
 
     try:
+        # Jobs and the independently deployed app use the same pure matcher.
+        jobs_dir = next((a.split("=", 1)[1] for a in sys.argv if a.startswith("--jobs-dir=")), "")
+        if jobs_dir:
+            sys.path.append(str(Path(jobs_dir).parent))
+        from app.mutes import is_muted
+
         tbl = f"`{catalog}`.`{schema}`.alert_events"
         ws = str(WorkspaceClient().get_workspace_id())
         ensure_columns(spark, tbl, {"muted": "BOOLEAN", "incident_id": "STRING"})
@@ -464,8 +472,17 @@ def emit_alerts(
                 "state": "resolved",
             }
             for rule, app in sorted(resolving_keys(open_keys, current, owned_rules, evaluated_apps))
+            if (rule, app) not in (unknown_keys or set())
         ]
         now = datetime.now(timezone.utc)
+        mutes = [
+            r.asDict() if hasattr(r, "asDict") else dict(r)
+            for r in spark.sql(
+                f"SELECT * FROM `{catalog}`.`{schema}`.alert_mutes "
+                "WHERE workspace_id = :ws AND starts_at <= now() AND ends_at > now()",
+                args={"ws": ws},
+            ).collect()
+        ]
         full = [
             {
                 **r,
@@ -474,7 +491,7 @@ def emit_alerts(
                 "source": "job",
                 "value": float(r.get("value") or 0),
                 "workspace_id": ws,
-                "muted": False,
+                "muted": is_muted(r["app"], r["rule"], mutes, now),
                 "incident_id": None,
             }
             for r in transitions

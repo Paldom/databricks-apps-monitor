@@ -12,6 +12,7 @@ import os
 from datetime import datetime, timezone
 
 import httpx
+from mutes import is_muted
 
 log = logging.getLogger("monitor.alerts")
 
@@ -20,6 +21,11 @@ ERROR_RATE_PCT = float(os.environ.get("ALERT_ERROR_RATE_PCT", "10"))
 WEBHOOK = os.environ.get("ALERT_WEBHOOK_URL", "")
 
 _active: dict[str, dict] = {}  # key = rule:app
+_mutes: list[dict] = []
+
+
+def set_mutes(rows: list[dict]) -> None:
+    _mutes[:] = rows
 
 
 def rehydrate(rows: list[dict]) -> None:
@@ -107,6 +113,8 @@ def evaluate(fleet: dict, probes: dict, summary_fn, synth: dict | None = None) -
             events.append({**a, "state": "resolved"})
     _active.clear()
     _active.update(desired)
+    for a in [*events, *_active.values()]:
+        a["muted"] = is_muted(a["app"], a["rule"], _mutes, datetime.fromisoformat(now))
     for e in events:
         log.warning("alert %s: %s %s — %s", e["state"], e["severity"], e["rule"], e["message"])
     return events
@@ -117,6 +125,7 @@ def active() -> list[dict]:
 
 
 def notify_webhook(events: list[dict]) -> None:
+    events = [e for e in events if not e.get("muted")]
     if not WEBHOOK or not events:
         return
     try:

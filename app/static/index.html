@@ -617,10 +617,14 @@ async function loadTab(tab){
     if(tab==='overview'){
       const d=await get(A('/overview'));
       set(renderOverview(d,appOf(CUR)||{}));
+      body.insertAdjacentHTML('beforeend','<!-- S2 --><div class="sec" id="sloPanel">Loading SLOs…</div><!-- S5 --><div class="sec" id="telemetryHealth">Loading data quality…</div>');
+      loadSloPanel(CUR);loadTelemetryHealth(CUR);
     }else if(tab==='operate'){
       const [a,sy,d]=await Promise.all([get(A('')),get(A(`/synthetics?hours=${h}`)),get(A('/ops'))]);
       set(`<div class="sec"><div class="cap" style="font-size:13px">Availability — probes &amp; journeys</div>${renderUptime(a,sy)}</div>
            <div class="sec" style="margin-top:26px;border-top:1px solid var(--grid);padding-top:16px"><div class="cap" style="font-size:13px">Operations &amp; governance</div>${renderOps(d)}</div>`);
+      body.insertAdjacentHTML('afterbegin','<!-- S1 --><div class="sec" id="mutePanel">Loading maintenance windows…</div><!-- S2 --><div class="sec" id="sloPanel">Loading SLOs…</div><!-- S5 --><div class="sec" id="telemetryHealth">Loading data quality…</div>');
+      loadMutePanel(CUR);loadSloPanel(CUR);loadTelemetryHealth(CUR);
     }else if(tab==='uitests'){
       const sy=await get(A('/synthetics?hours=168'));
       set(renderUITests(sy.browser||[]));
@@ -1068,7 +1072,7 @@ function alertsBodyHtml(){
     <section><h2>Alert history · 3 days</h2>
     ${(a.recent||[]).length?`<table class="data" style="background:var(--card)"><tr><th>time</th><th>state</th><th>sev</th><th>rule</th><th>app</th><th>message</th></tr>
       ${a.recent.map(x=>`<tr><td style="white-space:nowrap">${new Date(x.ts).toLocaleString([],{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})}</td>
-        <td><span class="pill ${x.state==='firing'?'down':'ok'}">${esc(x.state.toUpperCase())}</span></td>
+        <td><span class="pill ${x.state==='firing'?'down':'ok'}">${esc(x.state.toUpperCase())}</span>${x.muted===true||x.muted==='true'?'<span class="badge">muted</span>':''}</td>
         <td>${sevChip(x.severity)}</td><td class="mono">${esc(x.rule)}</td><td>${esc(x.app)}</td><td style="font-size:11.5px">${esc(x.message)}</td></tr>`).join('')}</table>`
       :'<div class="loading">no recorded transitions yet</div>'}</section>`;
 }
@@ -1167,6 +1171,7 @@ function renderTimeline(d){
       <span style="white-space:nowrap;color:var(--text-faint);font-variant-numeric:tabular-nums">${new Date(e.ts).toLocaleString([],{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})}</span>
       <span>${icon}</span>
       ${e.type==='alert'?`<span class="pill ${e.state==='firing'?'down':'ok'}" style="margin:0">${esc((e.state||'').toUpperCase())}</span>`:''}
+      ${e.muted===true||e.muted==='true'?'<span class="badge">muted</span>':''}
       <span class="mono" style="color:var(--text-muted)">${esc(e.rule)}</span>
       <span style="flex:1">${esc(e.message)}</span></div>`}).join('')}`;
 }
@@ -1386,6 +1391,8 @@ async function renderGovernanceSeg(){
     ${(GOV.audit||[]).slice(0,30).map(x=>`<tr><td style="white-space:nowrap">${new Date(x.event_time).toLocaleString([],{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})}</td>
       <td class="mono" style="font-size:10.5px">${esc(x.user||'')}</td><td class="mono">${esc(x.action_name)}</td><td>${esc(x.app||'')}</td><td>${esc(x.status_code||'')}</td></tr>`).join('')
       ||'<tr><td colspan="5" class="loading">audit snapshot appears after the next inventory run</td></tr>'}</table></section>`;
+  v.insertAdjacentHTML('afterbegin','<!-- S6 --><section id="monitorCost">Loading cost of monitoring…</section>');
+  loadMonitorCost();
 }
 
 // ------------------------------------------------------------------- loops
@@ -1442,6 +1449,110 @@ renderRoute();
 tick().then(renderRoute);setInterval(tick,15000);
 enrichTick();setInterval(enrichTick,600000);
 alertsTick();setInterval(alertsTick,60000);
+</script>
+<!-- S1 -->
+<script>
+async function opsWrite(url,method,body){
+  const r=await fetch(url,{method,headers:{'Content-Type':'application/json'},...(body?{body:JSON.stringify(body)}:{})});
+  if(!r.ok){const d=await r.json().catch(()=>({}));throw new Error(typeof d.detail==='string'?d.detail:JSON.stringify(d.detail||r.status))}
+  return r.json();
+}
+async function loadMutePanel(name){
+  const el=document.getElementById('mutePanel');if(!el)return;
+  try{
+    const d=await get('api/actions/mute');if(!el.isConnected||CUR!==name)return;
+    el.innerHTML=`<div class="cap">Maintenance windows</div><p>Alerts keep evaluating and remain in the timeline. Matching notifications are muted.</p>
+      <form id="muteForm" class="btnrow">
+        <label>App glob <input name="app" value="${esc(name)}" required maxlength="128"></label>
+        <label>Rule glob <input name="rule" value="*" required maxlength="128"></label>
+        <label>Reason <input name="reason" required maxlength="1000" placeholder="planned maintenance"></label>
+        <label>Until <input name="until" type="datetime-local"></label>
+        <button class="action">Mute (default 1h)</button>
+      </form><div class="opsMessage" role="status"></div>
+      <table class="data"><tr><th>App / rule</th><th>Window</th><th>Reason</th><th></th></tr>
+      ${(d.mutes||[]).map(m=>`<tr><td>${esc(m.app)} / ${esc(m.rule)}</td><td>${esc(m.starts_at)} → ${esc(m.ends_at)} UTC</td><td>${esc(m.reason)}</td><td><button class="action" data-unmute="${esc(m.id)}">Unmute</button></td></tr>`).join('')||'<tr><td colspan="4">No pending or active windows</td></tr>'}</table>`;
+    el.querySelector('form').onsubmit=async e=>{
+      e.preventDefault();const f=new FormData(e.target);
+      try{await opsWrite('api/actions/mute','POST',{app:f.get('app'),rule:f.get('rule'),reason:f.get('reason'),ends_at:f.get('until')?new Date(f.get('until')).toISOString():new Date(Date.now()+3600000).toISOString()});await loadMutePanel(name)}
+      catch(err){el.querySelector('.opsMessage').textContent=err.message}
+    };
+    el.querySelectorAll('[data-unmute]').forEach(b=>b.onclick=async()=>{
+      try{await opsWrite('api/actions/mute/'+encodeURIComponent(b.dataset.unmute),'DELETE');await loadMutePanel(name)}
+      catch(err){el.querySelector('.opsMessage').textContent=err.message}
+    });
+  }catch(e){if(el.isConnected)el.textContent='Maintenance windows unavailable: '+e.message}
+}
+</script>
+<!-- S2 -->
+<script>
+function budgetChart(rows){
+  const values=rows.filter(r=>r.budget_remaining_pct!=null);if(!values.length)return '<p>Budget unknown — no request samples.</p>';
+  const low=Math.min(0,...values.map(r=>+r.budget_remaining_pct)),height=100-low||1;
+  const pts=values.map((r,i)=>`${10+i*380/Math.max(1,values.length-1)},${110-(+r.budget_remaining_pct-low)*100/height}`);
+  return `<svg viewBox="0 0 400 125" role="img" aria-label="Cumulative error budget remaining in the selected window" style="width:100%;max-width:520px;height:130px"><title>${values.map(r=>esc(r.date)+': '+Number(r.budget_remaining_pct).toFixed(1)+'%').join('; ')}</title><line x1="10" x2="390" y1="110" y2="110" stroke="currentColor" opacity=".2"/><polyline fill="none" stroke="var(--ok)" stroke-width="2" points="${pts.join(' ')}"/>${pts.map(p=>{const [x,y]=p.split(',');return `<circle cx="${x}" cy="${y}" r="2" fill="currentColor"/>`}).join('')}</svg><div class="meta">${esc(values[0].date)} → ${esc(values[values.length-1].date)} · cumulative remaining budget</div>`;
+}
+async function loadSloPanel(name){
+  const el=document.getElementById('sloPanel');if(!el)return;
+  try{
+    const d=await get('api/apps/'+encodeURIComponent(name)+'/slo');if(!el.isConnected||CUR!==name)return;
+    el.innerHTML=`<div class="cap">Service objectives</div><p>Span-based SLIs use sampled real requests. Use a sampler ratio of 1 for SLO apps; no traffic is unknown.</p>
+      ${(d.specs||[]).map(s=>`<div class="sec"><b>${esc(s.slo)}</b> · ${(+s.target*100).toFixed(3)}% ${esc(s.sli)} · ${esc(s.window_days)} days
+        <span class="badge">Budget remaining: ${s.budget_remaining_pct==null?'unknown':Number(s.budget_remaining_pct).toFixed(1)+'%'}</span>
+        <button class="action" data-delete-slo="${esc(s.slo)}">Delete</button>
+        ${budgetChart((d.series||[]).filter(r=>r.slo===s.slo))}
+        <div class="meta">Observed since ${esc(s.observed_since||'no data')} · latest bucket ${esc(s.last_bucket||'none')}</div></div>`).join('')||'<p>No SLO configured.</p>'}
+      <details><summary>Add / update an objective (admin)</summary><form id="sloForm" class="btnrow">
+        <label>Name <input name="slo" required maxlength="80" placeholder="availability"></label>
+        <label>SLI <select name="sli"><option>availability</option><option>latency</option></select></label>
+        <label>Target (fraction) <input name="target" type="number" min="0.000001" max="0.999999" step="any" value="0.995" required></label>
+        <label>Latency ms <input name="threshold_ms" type="number" min="1" placeholder="2500"></label>
+        <label>Days <input name="window_days" type="number" min="1" max="90" value="28" required></label>
+        <label>Route LIKE <input name="route_filter" placeholder="/api/%" maxlength="256"></label>
+        <button class="action">Save SLO</button></form><p>Reusing a name updates that SLO. Changing its measurement starts a new series.</p></details><div class="opsMessage" role="status"></div>`;
+    el.querySelector('form').onsubmit=async e=>{
+      e.preventDefault();const f=new FormData(e.target);
+      try{await opsWrite('api/apps/'+encodeURIComponent(name)+'/slo','POST',{slo:f.get('slo'),sli:f.get('sli'),target:+f.get('target'),threshold_ms:f.get('threshold_ms')?+f.get('threshold_ms'):null,window_days:+f.get('window_days'),route_filter:f.get('route_filter')||null});await loadSloPanel(name)}
+      catch(err){el.querySelector('.opsMessage').textContent=err.message}
+    };
+    el.querySelectorAll('[data-delete-slo]').forEach(b=>b.onclick=async()=>{
+      try{await opsWrite('api/apps/'+encodeURIComponent(name)+'/slo/'+encodeURIComponent(b.dataset.deleteSlo),'DELETE');await loadSloPanel(name)}
+      catch(err){el.querySelector('.opsMessage').textContent=err.message}
+    });
+  }catch(e){if(el.isConnected)el.textContent='SLOs unavailable: '+e.message}
+}
+</script>
+<!-- S5 -->
+<script>
+async function loadTelemetryHealth(name){
+  const el=document.getElementById('telemetryHealth');if(!el)return;
+  try{
+    const d=await get('api/apps/'+encodeURIComponent(name)+'/telemetry-health');if(!el.isConnected||CUR!==name)return;
+    const h=d.health;if(!h){el.textContent='Data quality: unknown (no telemetry-health snapshot)';return}
+    const pct=n=>n==null?'unknown':(Number(n)*100).toFixed(1)+'%';
+    el.innerHTML=`<div class="cap">Data quality <span class="badge">${esc(h.quality)}</span></div>
+      <div class="meta">Envelope coverage ${pct(h.envelope_coverage)} · suspected orphans ${pct(h.orphan_ratio_24h)} (24h) · sampler ratio ${h.sampler_ratio==null?'unknown':esc(h.sampler_ratio)}</div>
+      <div class="meta">Last span ${esc(h.last_span_at||'unknown')} · log ${esc(h.last_log_at||'unknown')} · metric ${esc(h.last_metric_at||'unknown')}</div>
+      <div class="meta">HTTP semconv: legacy only ${pct(h.semconv_legacy_only)} · stable only ${pct(h.semconv_stable_only)} · both ${pct(h.semconv_both)}</div>
+      <div class="meta">Gateway − OTel tokens: ${h.gateway_vs_otel_tokens==null?'unknown':fmt(h.gateway_vs_otel_tokens)} · ${esc(h.token_date||'no reconciled day')}</div>
+      <p>Sampling and late data can look like broken propagation. Orphan alerts require &gt;20% continuously for six hours.</p>`;
+  }catch(e){if(el.isConnected)el.textContent='Data quality unavailable: '+e.message}
+}
+</script>
+<!-- S6 -->
+<script>
+async function loadMonitorCost(){
+  const el=document.getElementById('monitorCost');if(!el)return;
+  try{
+    const d=await get('api/monitor/cost');if(!el.isConnected)return;
+    const latest=(d.daily||[]).reduce((v,r)=>r.date>v?r.date:v,''),rows=(d.daily||[]).filter(r=>r.date===latest);
+    const known=rows.reduce((s,r)=>s+(r.usd==null?0:+r.usd),0),partial=rows.some(r=>r.usd==null);
+    const storage=(d.storage||[]).reduce((s,r)=>s+(r.size_bytes==null?0:+r.size_bytes),0);
+    el.innerHTML=`<h2>Cost of monitoring</h2><div class="meta">${latest?`$${fmt(known,2)} ${partial?'known subtotal':'total'} · ${esc(latest)}`:'No cost data yet'} · ${(storage/1024**3).toFixed(3)} GiB observed Delta storage${(d.storage||[]).some(r=>r.size_bytes==null)?' (partial)':''}</div>
+      <table class="data"><tr><th>Component</th><th>USD</th><th>Input / output tokens</th><th>Basis</th></tr>
+      ${rows.map(r=>`<tr><td>${esc(r.component)}</td><td>${r.usd==null?'unknown':'$'+fmt(r.usd,2)}</td><td>${r.input_tokens==null?'—':fmt(r.input_tokens)} / ${r.output_tokens==null?'—':fmt(r.output_tokens)}</td><td>${esc(r.basis)}</td></tr>`).join('')}</table>
+      <p>Billing lags. Warehouse cost is a duration-share estimate; token USD requires model prices. Unknown components are excluded from the known subtotal.</p>`;
+  }catch(e){if(el.isConnected)el.textContent='Monitor cost unavailable: '+e.message}
+}
 </script>
 </body>
 </html>

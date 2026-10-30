@@ -565,7 +565,12 @@ def main() -> None:
         audit_sql = AUDIT_SQL.format(fq=fq, ws=w.get_workspace_id())
         spark.sql(audit_sql)
         workspace_column(spark, f"{fq}.monitor_audit", str(w.get_workspace_id()))
-        spark.sql(f"INSERT OVERWRITE {fq}.monitor_audit " + audit_sql.split(" AS\n", 1)[1])
+        # Preserve monitor-authored admin actions; only refresh the platform snapshot.
+        spark.sql(
+            f"DELETE FROM {fq}.monitor_audit WHERE service_name = 'apps' AND workspace_id = :ws",
+            args={"ws": str(w.get_workspace_id())},
+        )
+        spark.sql(f"INSERT INTO {fq}.monitor_audit " + audit_sql.split(" AS\n", 1)[1])
         print("monitor_audit refreshed (workspace-filtered)")
     except Exception as e:  # noqa: BLE001
         print(f"audit snapshot failed: {e}")

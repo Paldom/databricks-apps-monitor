@@ -78,7 +78,7 @@ def sample_traces(w: WorkspaceClient, experiment_id: str, hours: int, n: int) ->
     return out
 
 
-def judge(w: WorkspaceClient, model: str, app: str, samples: list[dict]) -> dict:
+def judge(w: WorkspaceClient, model: str, app: str, samples: list[dict], usage_sink=None) -> dict:
     body = {
         "messages": [
             {"role": "system", "content": JUDGE},
@@ -97,7 +97,10 @@ def judge(w: WorkspaceClient, model: str, app: str, samples: list[dict]) -> dict
         timeout=180,
     )
     r.raise_for_status()
-    text = r.json()["choices"][0]["message"]["content"]
+    data = r.json()
+    if usage_sink:
+        usage_sink(data.get("usage", {}))
+    text = data["choices"][0]["message"]["content"]
     if isinstance(text, list):
         text = "".join(b.get("text", "") for b in text)
     m = re.search(r"\{.*\}", text, re.S)
@@ -105,6 +108,9 @@ def judge(w: WorkspaceClient, model: str, app: str, samples: list[dict]) -> dict
 
 
 def main() -> None:
+    from model_usage import record_usage
+    from ops_tables import ensure_ops_tables
+
     p = argparse.ArgumentParser()
     p.add_argument("--catalog", required=True)
     p.add_argument("--schema", required=True)
@@ -118,6 +124,8 @@ def main() -> None:
     w = WorkspaceClient()
     spark = SparkSession.builder.getOrCreate()
     spark.sql(DDL.format(fq=fq))
+    ensure_ops_tables(spark, fq)
+    ws = str(w.get_workspace_id())
 
     prev = {
         r["name"]: r
@@ -142,7 +150,13 @@ def main() -> None:
             print(f"{a.name}: no traces in the last {args.hours}h")
             continue
         try:
-            scores = judge(w, args.model, a.name, samples)
+            scores = judge(
+                w,
+                args.model,
+                a.name,
+                samples,
+                usage_sink=lambda usage: record_usage(spark, fq, ws, "eval", args.model, usage),
+            )
         except Exception as e:  # noqa: BLE001
             print(f"{a.name}: judge failed: {e}")
             continue

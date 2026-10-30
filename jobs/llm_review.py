@@ -80,7 +80,7 @@ def pack_source(w: WorkspaceClient, root: str) -> tuple[str, int]:
 
 
 def call_model(
-    w: WorkspaceClient, model: str, source_pack: str, app_name: str
+    w: WorkspaceClient, model: str, source_pack: str, app_name: str, usage_sink=None
 ) -> tuple[dict, dict]:
     body = {
         "messages": [
@@ -98,6 +98,8 @@ def call_model(
     )
     r.raise_for_status()
     data = r.json()
+    if usage_sink:
+        usage_sink(data.get("usage", {}))
     text = data["choices"][0]["message"]["content"]
     if isinstance(text, list):  # some endpoints return content blocks
         text = "".join(b.get("text", "") for b in text)
@@ -118,6 +120,9 @@ CREATE TABLE IF NOT EXISTS {fq}.llm_reviews (
 
 
 def main() -> None:
+    from model_usage import record_usage
+    from ops_tables import ensure_ops_tables
+
     p = argparse.ArgumentParser()
     p.add_argument("--catalog", required=True)
     p.add_argument("--schema", required=True)
@@ -132,6 +137,8 @@ def main() -> None:
     w = WorkspaceClient()
     spark = SparkSession.builder.getOrCreate()
     spark.sql(DDL.format(fq=fq))
+    ensure_ops_tables(spark, fq)
+    ws = str(w.get_workspace_id())
     try:  # table may predate the overview column
         spark.sql(f"ALTER TABLE {fq}.llm_reviews ADD COLUMNS (overview_json STRING)")
     except Exception:  # noqa: BLE001 — already there
@@ -164,7 +171,13 @@ def main() -> None:
         print(f"reviewing {a.name} with {args.model}")
         try:
             pack, n_files = pack_source(w, dep.source_code_path)
-            review, usage = call_model(w, args.model, pack, a.name)
+            review, usage = call_model(
+                w,
+                args.model,
+                pack,
+                a.name,
+                usage_sink=lambda usage: record_usage(spark, fq, ws, "review", args.model, usage),
+            )
         except Exception as e:  # noqa: BLE001 — one bad app must not sink the run
             print(f"  review failed: {e}")
             continue

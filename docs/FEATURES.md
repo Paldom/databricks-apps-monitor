@@ -18,6 +18,11 @@ this is the exhaustive list.
 | Cost tracking                    | billing × list prices; billable LLM spans per model; gateway tokens stored separately; requester SP IDs resolved through inventory | `costs_daily`, `costs_ai_daily`, `apps_inventory` |
 | Synthetic monitoring             | probes/journeys/capacity send `x-monitor-synthetic`; queries prefer `traffic.kind`, with legacy healthz-name fallback | `app/journeys.json`, `otel_spans` |
 | Alerting                         | startup rehydration; job-owned firing/resolved transitions; partial scans resolve only evaluated apps; open alerts in UI | `alert_events`, `v_alerts_open` |
+| Maintenance windows (S1)         | Admin mute/unmute with app/rule globs and UTC start/end; fleet-refresh cache; evaluation continues, muted transitions persist and skip webhooks | `alert_mutes`, `alert_events.muted`, `monitor_audit` |
+| Night maintenance (S1)          | Night stop mutes `app_stopped`/`app_down` before stopping; only automatically stopped apps restart on the first hourly run after 06:00 local | `app_config`, `alert_mutes`, `alert_events` |
+| Service objectives (S2)         | Admin spec editor; quarter-hour serverless job MERGEs two hours of completed 5-minute buckets; both-window fast/slow/ticket burns and running-app no-data alerts; per-app budget chart | `slo_specs`, `sli_5m`, `alert_events` |
+| Telemetry health (S5)           | Per-signal freshness, real-server envelope coverage, 24h suspected orphan ratio, HTTP semconv mix, token reconciliation and available app sampler config; six-hour sustained orphan alert | `v_telemetry_health`, `telemetry_health_samples`, `apps_inventory.sampler_ratio`, `costs_daily` |
+| Monitor self-metering (S6)      | Monitor job/app billing, SP query-duration warehouse allocation, final review/eval token usage, Delta storage snapshots; configurable fleet-cost ratio alert and Governance tile | `monitor_cost_daily`, `monitor_storage_daily`, `monitor_model_usage`, `alert_events` |
 | Adoption analytics               | retained daily/hourly request counts and user/session HLL sketches; per-user detail within raw retention | `agg_app_daily`, `agg_app_hourly`, `v_usage_daily`, `v_users` |
 | GenAI monitoring                 | retained billable model/token/latency trends by traffic kind; recent session detail | `agg_genai_daily`, `v_genai_daily`, `v_genai_sessions` |
 | Error groups & dependencies      | SDK exception fingerprints with normalized-log fallback; outbound peer latency | `v_error_groups`, `v_dependencies` |
@@ -40,6 +45,53 @@ this is the exhaustive list.
 | Capacity probing                 | tagged step ramp on `/monitor/health`; missing route falls back to admin `capacity_path` or `/` | Ops tab, `app_config` |
 | Ask Genie                        | curated Genie space (18 gold objects) embedded in the app                                        | `#/ask`                                           |
 | AI/BI dashboard + watchdog       | versioned Lakeview dashboard; dead-man SQL alert                                                 | `dashboards/fleet.lvdash.json`                    |
+
+Phase 2 APIs live in `app/routes_ops.py`. Mute creation uses `POST /api/actions/mute`;
+`GET` lists unexpired windows, including scheduled ones. `DELETE /api/actions/mute/{id}`
+(or `DELETE /api/actions/mute?id=...`) removes a window. Times must include a timezone;
+matching uses case-sensitive globs and an inclusive start / exclusive end. The Ops
+panel supports a one-hour default or a chosen end time. Mutes suppress notifications
+at transition time; expiration does not manufacture another firing transition.
+Monitor-authored audit rows survive the gold job's platform audit refresh.
+
+`POST`/`PUT /api/apps/{name}/slo` upserts a named objective;
+`DELETE /api/apps/{name}/slo/{slo}` removes it. `GET /api/apps/{name}/slo` returns
+specs, observed history, remaining budget percent and a daily cumulative budget series
+within each spec's window (28 days by default). Negative remaining budget means
+exhaustion. The SLI uses the shared real-traffic and HTTP semantic-convention helpers:
+availability rejects HTTP 4xx/5xx or OTel ERROR; latency compares duration to the
+configured threshold. Unknown windows do not resolve previously firing burn alerts.
+Changed measurement definitions get a new revision, so old buckets cannot contaminate
+them. Multiple failing specs share one alert per app/rule with all spec names listed.
+Sampling affects these span-derived SLIs: use ratio 1 for SLO apps. A histogram-based
+SLI is deferred until the SDK metric contract is available.
+
+`GET /api/apps/{name}/telemetry-health` reads the telemetry quality view. Orphans
+exclude roots and all-zero parent IDs, and parent lookup crosses apps within the same
+trace. Sampling, parents outside the 24-hour horizon and late arrivals can all resemble
+broken propagation. The alert needs 25 consecutive quarter-hour observations above
+20% spanning six hours; gaps are unknown. Sampler settings come from Apps API
+`config.env` when exposed; unavailable or indirect settings stay unknown. Token
+reconciliation uses the latest completed cost day and shows its date.
+
+`GET /api/monitor/cost` returns 30 days of component costs and the latest table sizes.
+The daily cost job adds `self_meter` even if fleet rollup fails, and recomputes 30 days
+to absorb delayed/corrected billing. `BUNDLE_VAR_monitor_cost_pct` configures the
+cost alert (default 10% of the fleet's previous-day compute plus priced AI cost,
+excluding the monitor). Warehouse USD is an estimate based on the monitor SP's
+share of total query duration, including queue time. Unavailable source permissions
+produce null costs. Unknown components cannot resolve an existing cost alert.
+Review/eval usage is captured directly from each final FMAPI response before parsing
+model output, without depending on the parallel SDK v2 branch. Token USD stays null
+unless S4's workspace-scoped `model_prices` contains effective input/output prices;
+the UI labels the known subtotal and unpriced components. Delta sizes are bytes,
+not a storage-dollar estimate.
+
+Inventory creates the new operations tables and grants schema SELECT plus MODIFY on
+`alert_mutes`, `slo_specs` and `monitor_audit` to the monitor SP. Run inventory before
+using the new APIs. The SLO/health job uses PERFORMANCE_OPTIMIZED for its 15-minute
+cadence; daily self-metering uses the cost job's STANDARD mode. Every new operations
+table includes `workspace_id` and a table comment.
 
 Phase 0 summaries backfill all available raw spans on their first run, then MERGE the
 last two days to incorporate late telemetry. The daily lifecycle retention job waits

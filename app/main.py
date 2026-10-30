@@ -22,10 +22,12 @@ from pathlib import Path
 
 import httpx
 import uvicorn
+from auth import require_admin
 from databricks.sdk import WorkspaceClient
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from opentelemetry import metrics, trace
+from routes_ops import router as ops_router
 from synthetic import capacity_path, capacity_url, synthetic_headers
 
 import alerts
@@ -119,6 +121,11 @@ async def refresh_fleet() -> None:
         fleet.pop(gone, None)
         probes.pop(gone, None)
     _last_fleet_refresh = time.time()
+    try:
+        ws = str(await asyncio.to_thread(_workspace_id))
+        alerts.set_mutes(await q.run(q.ACTIVE_MUTES, ttl=0, ws=ws))
+    except Exception:  # noqa: BLE001 — retain cached windows during a warehouse outage
+        log.warning("mute refresh failed", exc_info=True)
     log.info("fleet refreshed: %d apps visible", len(fleet))
 
 
@@ -268,6 +275,7 @@ async def _persist_alerts(events: list[dict]) -> None:
                 message=e["message"],
                 value=e["value"] if e["value"] is not None else 0,
                 state=e["state"],
+                muted=str(e.get("muted", False)).lower(),
                 ws=str(await asyncio.to_thread(_workspace_id)),
             )
         except Exception:  # noqa: BLE001 — table appears after first inventory run
@@ -351,6 +359,7 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="apps-monitor", lifespan=lifespan, docs_url=None, redoc_url=None)
+app.include_router(ops_router)
 
 # ---- workspace federation: each workspace runs its own monitor; the selector links them.
 WORKSPACE_NAME = w.config.host.removeprefix("https://").split(".")[0]
@@ -360,36 +369,6 @@ except Exception:  # noqa: BLE001
     WORKSPACES = []
 if not any(x.get("name") == WORKSPACE_NAME for x in WORKSPACES):
     WORKSPACES.insert(0, {"name": WORKSPACE_NAME, "url": ""})  # "" = this one
-
-# ---- authorization (review P0.1): viewers are read-only; mutations need MONITOR_ADMINS.
-# The Apps proxy injects the authenticated user's identity in X-Forwarded-* headers.
-MONITOR_ADMINS = {
-    e.strip().lower()
-    for e in os.environ.get("MONITOR_ADMINS", "").split(",")
-    if e.strip() and e.strip().lower() != "unset"
-}
-
-
-def actor_of(request: Request) -> str:
-    return (
-        request.headers.get("x-forwarded-email")
-        or request.headers.get("x-forwarded-preferred-username")
-        or request.headers.get("x-forwarded-user")
-        or "unknown"
-    )
-
-
-def require_admin(request: Request) -> str:
-    actor = actor_of(request)
-    if actor.lower() not in MONITOR_ADMINS:
-        log.warning("denied action %s %s by %s", request.method, request.url.path, actor)
-        raise HTTPException(
-            403,
-            "This monitor is read-only for your account. "
-            "Ask an operator to add you to MONITOR_ADMINS.",
-        )
-    log.info("action %s %s by %s", request.method, request.url.path, actor)
-    return actor
 
 
 @app.get("/healthz")

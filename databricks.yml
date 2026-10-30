@@ -18,6 +18,9 @@ sync:
     - "*.md"
 
 variables:
+  monitor_cost_pct:
+    description: Alert when daily monitor known cost exceeds this percentage of fleet cost
+    default: 10
   catalog:
     description: Unity Catalog catalog holding the monitoring schema
     default: main

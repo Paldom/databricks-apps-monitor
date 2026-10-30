@@ -298,7 +298,7 @@ RELEASES = f"""
 FORECAST = f"SELECT avg_daily_usd, forecast_30d_usd, days_observed FROM {t('v_cost_forecast')} WHERE name = :app"
 
 ALERTS_APP = f"""
-  SELECT ts, rule, severity, message, value, state, source FROM {t("alert_events")}
+  SELECT ts, rule, severity, message, value, state, source, muted FROM {t("alert_events")}
   WHERE app = :app AND ts >= now() - INTERVAL 14 DAYS ORDER BY ts DESC LIMIT 100"""
 
 DEPLOYMENTS = f"""
@@ -334,7 +334,7 @@ CONFIG_UPSERT = f"""
           coalesce(nullif(:capacity_path, ''), '/'), :ws)"""
 
 OPEN_JOB_ALERTS = f"""
-  SELECT rule, app, severity, message, value, ts AS since FROM {t("v_alerts_open")}
+  SELECT rule, app, severity, message, value, ts AS since, muted FROM {t("v_alerts_open")}
   WHERE source = 'job' AND workspace_id = :ws"""
 
 MTD_BY_APP = f"""
@@ -422,7 +422,7 @@ QUALITY_APP = f"""
 INSERT_ALERT = f"""
   INSERT INTO {t("alert_events")}
   (ts, rule, app, severity, message, value, state, source, workspace_id, muted, incident_id) VALUES
-  (:ts::timestamp, :rule, :app, :severity, :message, :value::double, :state, 'monitor', :ws, false, NULL)"""
+  (:ts::timestamp, :rule, :app, :severity, :message, :value::double, :state, 'monitor', :ws, :muted::boolean, NULL)"""
 
 OPEN_ALERTS = f"""
   SELECT rule, app, severity, message, value, ts AS since FROM (
@@ -432,6 +432,61 @@ OPEN_ALERTS = f"""
   WHERE rn = 1 AND state = 'firing'"""
 
 RECENT_ALERTS = f"""
-  SELECT ts, rule, app, severity, message, value, state, source
+  SELECT ts, rule, app, severity, message, value, state, source, muted
   FROM {t("alert_events")} WHERE ts >= current_timestamp() - INTERVAL 3 DAYS
   ORDER BY ts DESC LIMIT 100"""
+
+# ---- ops (S1/S2/S5/S6)
+
+ACTIVE_MUTES = f"""SELECT * FROM {t("alert_mutes")}
+  WHERE workspace_id = :ws AND ends_at > now()"""
+MUTE_INSERT = f"""INSERT INTO {t("alert_mutes")}
+  (id, app, rule, starts_at, ends_at, reason, created_by, created_at, workspace_id)
+  VALUES (:id, :app, :rule, :starts_at::timestamp, :ends_at::timestamp, :reason, :actor, now(), :ws)"""
+MUTE_DELETE = f"DELETE FROM {t('alert_mutes')} WHERE id = :id AND workspace_id = :ws"
+MUTE_GET = f"SELECT * FROM {t('alert_mutes')} WHERE id = :id AND workspace_id = :ws"
+OPS_AUDIT = f"""INSERT INTO {t("monitor_audit")}
+  (event_time, user, service_name, action_name, app, status_code, params_json, workspace_id)
+  VALUES (now(), :actor, 'monitor', :action, :app, 200, :params, :ws)"""
+SLO_UPSERT = f"""MERGE INTO {t("slo_specs")} t USING
+  (SELECT :ws AS workspace_id, :app AS name, :slo AS slo) s
+  ON t.workspace_id = s.workspace_id AND t.name = s.name AND t.slo = s.slo
+  WHEN MATCHED THEN UPDATE SET sli = :sli, target = :target::double,
+    threshold_ms = nullif(:threshold_ms, '')::double, window_days = :window_days::int,
+    route_filter = nullif(:route_filter, ''), updated_by = :actor, updated_at = now(),
+    revision = CASE WHEN t.sli = :sli AND t.target = :target::double
+      AND t.threshold_ms <=> nullif(:threshold_ms, '')::double
+      AND t.route_filter <=> nullif(:route_filter, '') THEN t.revision ELSE :revision END
+  WHEN NOT MATCHED THEN INSERT
+    (workspace_id, name, slo, sli, target, threshold_ms, window_days, route_filter,
+     updated_by, updated_at, revision)
+    VALUES (:ws, :app, :slo, :sli, :target::double, nullif(:threshold_ms, '')::double,
+      :window_days::int, nullif(:route_filter, ''), :actor, now(), :revision)"""
+SLO_DELETE = f"""DELETE FROM {t("slo_specs")}
+  WHERE workspace_id = :ws AND name = :app AND slo = :slo"""
+SLO_SUMMARY = f"""SELECT s.*, sum(b.good) AS good, sum(b.total) AS total,
+  100 * (1 - (sum(b.total) - sum(b.good)) / nullif(sum(b.total) * (1-s.target), 0))
+    AS budget_remaining_pct, min(b.bucket) AS observed_since, max(b.bucket) AS last_bucket
+  FROM {t("slo_specs")} s LEFT JOIN {t("sli_5m")} b
+    ON b.workspace_id = s.workspace_id AND b.name = s.name AND b.slo = s.slo
+    AND b.revision = s.revision
+    AND b.bucket >= timestampadd(DAY, -s.window_days, now())
+  WHERE s.workspace_id = :ws AND s.name = :app GROUP BY ALL ORDER BY s.slo"""
+SLO_SERIES = f"""WITH daily AS (
+  SELECT s.slo, s.target, date(b.bucket) AS date, sum(b.good) AS good, sum(b.total) AS total
+  FROM {t("slo_specs")} s JOIN {t("sli_5m")} b
+    ON b.workspace_id = s.workspace_id AND b.name = s.name AND b.slo = s.slo
+    AND b.revision = s.revision
+  WHERE s.workspace_id = :ws AND s.name = :app
+    AND b.bucket >= timestampadd(DAY, -s.window_days, now()) GROUP BY ALL)
+  SELECT *, 100 * (1 - sum(total-good) OVER w /
+      nullif(sum(total) OVER w * (1-target), 0)) AS budget_remaining_pct
+  FROM daily WINDOW w AS (PARTITION BY slo ORDER BY date ROWS UNBOUNDED PRECEDING)
+  ORDER BY slo, date"""
+TELEMETRY_HEALTH = f"""SELECT * FROM {t("v_telemetry_health")}
+  WHERE workspace_id = :ws AND name = :app"""
+MONITOR_COST = f"""SELECT * FROM {t("monitor_cost_daily")}
+  WHERE workspace_id = :ws AND date >= current_date() - 30 ORDER BY date, component"""
+MONITOR_STORAGE = f"""SELECT * FROM {t("monitor_storage_daily")}
+  WHERE workspace_id = :ws AND date = (SELECT max(date) FROM {t("monitor_storage_daily")}
+    WHERE workspace_id = :ws) ORDER BY size_bytes DESC"""

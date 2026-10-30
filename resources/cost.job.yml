@@ -2,6 +2,7 @@ resources:
   jobs:
     cost_rollup:
       name: monitor-cost-rollup
+      performance_target: STANDARD
       description: >-
         Daily per-app cost rollup: app-compute DBUs/$ from system.billing.usage ×
         list_prices, AI token usage from telemetry + AI Gateway usage where enabled.
@@ -28,3 +29,17 @@ resources:
               - "--catalog=${var.catalog}"
               - "--schema=${var.schema}"
               - "--jobs-dir=${workspace.file_path}/jobs"
+        - task_key: self_meter
+          depends_on:
+            - task_key: rollup
+          run_if: ALL_DONE
+          environment_key: default
+          spark_python_task:
+            python_file: ../jobs/self_meter.py
+            parameters:
+              - "--catalog=${var.catalog}"
+              - "--schema=${var.schema}"
+              - "--jobs-dir=${workspace.file_path}/jobs"
+              - "--monitor-app=apps-monitor"
+              - "--cost-pct=${var.monitor_cost_pct}"
+              - "--job-ids=${resources.jobs.inventory_scan.id},{{job.id}},${resources.jobs.llm_review.id},${resources.jobs.synthetics.id},${resources.jobs.telemetry_retention.id},${resources.jobs.app_stopper.id},${resources.jobs.provision_app.id},${resources.jobs.slo_eval.id}"
