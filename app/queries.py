@@ -490,3 +490,74 @@ MONITOR_COST = f"""SELECT * FROM {t("monitor_cost_daily")}
 MONITOR_STORAGE = f"""SELECT * FROM {t("monitor_storage_daily")}
   WHERE workspace_id = :ws AND date = (SELECT max(date) FROM {t("monitor_storage_daily")}
     WHERE workspace_id = :ws) ORDER BY size_bytes DESC"""
+# ---- product (S4/S7/S8/K7)
+
+POLICIES = f"""SELECT name, throttle, policy_updated_at FROM {t("app_config")}
+  WHERE workspace_id = :ws"""
+
+PRODUCT_CONFIG = f"""SELECT outcome_event, token_budget_day, throttle,
+  tokens_today, tokens_last_hour, policy_updated_at FROM {t("app_config")}
+  WHERE workspace_id = :ws AND name = :app"""
+
+PRODUCT_CONFIG_UPSERT = f"""MERGE INTO {t("app_config")} t
+  USING (SELECT :ws AS workspace_id, :app AS name) s
+  ON t.workspace_id = s.workspace_id AND t.name = s.name
+  WHEN MATCHED THEN UPDATE SET outcome_event = nullif(:outcome, ''),
+    token_budget_day = :budget::BIGINT, updated_at = now(), updated_by = :actor
+  WHEN NOT MATCHED THEN INSERT
+    (workspace_id, name, outcome_event, token_budget_day, throttle, updated_at, updated_by)
+    VALUES (:ws, :app, nullif(:outcome, ''), :budget::BIGINT, 'none', now(), :actor)"""
+
+MODEL_PRICES = f"""SELECT model, effective_from, input_usd_per_mtok, output_usd_per_mtok, source
+  FROM {t("model_prices")} WHERE workspace_id = :ws ORDER BY model, effective_from DESC"""
+MODEL_PRICE_UPSERT = f"""MERGE INTO {t("model_prices")} t USING (
+  SELECT :ws AS workspace_id, :model AS model, :effective::DATE AS effective_from,
+    :input::DOUBLE AS input_usd_per_mtok, :output::DOUBLE AS output_usd_per_mtok, :source AS source) s
+  ON t.workspace_id = s.workspace_id AND t.model = s.model AND t.effective_from = s.effective_from
+  WHEN MATCHED THEN UPDATE SET * WHEN NOT MATCHED THEN INSERT *"""
+
+UNIT_ECONOMICS = f"""WITH totals AS (
+  SELECT name, sum(dbu_usd) AS dbu_usd, sum(idle_usd) AS idle_usd,
+    CASE WHEN count_if(ai_usd IS NULL AND ai_input_tokens + ai_output_tokens > 0) > 0
+      THEN NULL ELSE sum(coalesce(ai_usd, 0)) END AS ai_usd,
+    CASE WHEN count_if(total_usd IS NULL) > 0 THEN NULL ELSE sum(total_usd) END AS total_usd,
+    count_if(total_usd IS NULL) AS unpriced_days,
+    sum(requests) AS requests, sum(completions) AS completions,
+    hll_sketch_estimate(hll_union_agg(users_hll)) AS users,
+    hll_sketch_estimate(hll_union_agg(sessions_hll)) AS sessions
+  FROM {t("v_unit_economics")} WHERE workspace_id = :ws AND date >= :since::DATE
+    AND (:app = '' OR name = :app) GROUP BY name
+  ) SELECT *, total_usd / nullif(requests, 0) * 1000 AS usd_per_1k_requests,
+    total_usd / nullif(sessions, 0) AS usd_per_session,
+    total_usd / nullif(users, 0) AS usd_per_user,
+    total_usd / nullif(completions, 0) AS usd_per_outcome FROM totals ORDER BY total_usd DESC"""
+
+EVENTS = f"""SELECT event_name, app_version, count(*) AS events,
+  count(DISTINCT session_id) AS sessions, max(time) AS last_seen
+  FROM {t("v_events")} WHERE workspace_id = :ws AND name = :app
+    AND event_source = 'event' AND time >= :since::TIMESTAMP
+  GROUP BY 1, 2 ORDER BY events DESC LIMIT 200"""
+FUNNEL_SPECS = f"""SELECT funnel, to_json(steps) AS steps FROM {t("funnel_specs")}
+  WHERE workspace_id = :ws AND name = :app ORDER BY funnel"""
+FUNNEL_UPSERT = f"""MERGE INTO {t("funnel_specs")} t USING (
+  SELECT :ws AS workspace_id, :app AS name, :funnel AS funnel,
+    from_json(:steps, 'ARRAY<STRING>') AS steps) s
+  ON t.workspace_id = s.workspace_id AND t.name = s.name AND t.funnel = s.funnel
+  WHEN MATCHED THEN UPDATE SET * WHEN NOT MATCHED THEN INSERT *"""
+FUNNELS = f"""SELECT * FROM {t("v_funnels")} WHERE workspace_id = :ws AND name = :app
+  ORDER BY funnel, app_version, step_number"""
+COHORTS = f"""SELECT * FROM {t("v_cohorts")} WHERE workspace_id = :ws AND name = :app
+  ORDER BY cohort_week, week_number"""
+LEADERBOARD = f"SELECT * FROM {t('v_leaderboard')} WHERE workspace_id = :ws"
+RUM = f"""SELECT * FROM {t("v_rum_daily")}
+  WHERE workspace_id = :ws AND name = :app AND date >= :since::DATE
+  ORDER BY date DESC, route, js_errors DESC LIMIT 500"""
+GUARDRAILS = f"""SELECT ts, trace_id, kind, severity, excerpt_hash, excerpt_masked
+  FROM {t("guardrail_findings")} WHERE workspace_id = :ws AND name = :app
+  AND ts >= :since::TIMESTAMP ORDER BY ts DESC LIMIT 200"""
+TEMPLATE_DRIFT = f"""WITH daily AS (
+    SELECT date, template_hash, count(*) AS samples,
+      sum(count(*)) OVER (PARTITION BY date) AS daily_samples
+    FROM {t("guardrail_samples")} WHERE workspace_id = :ws AND name = :app
+      AND date >= :since::DATE AND template_hash IS NOT NULL GROUP BY 1, 2
+  ) SELECT *, samples / daily_samples AS share FROM daily ORDER BY date DESC, share DESC"""

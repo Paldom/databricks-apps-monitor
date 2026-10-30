@@ -85,7 +85,7 @@ def grant_monitor_access(
     for stmt in (
         f"GRANT USE CATALOG ON CATALOG `{catalog}` TO `{sp}`",
         f"GRANT USE SCHEMA ON SCHEMA `{catalog}`.`{schema}` TO `{sp}`",
-        # Inherited SELECT also covers agg_app_*, agg_genai_daily, costs_ai_daily and v_alerts_open.
+        # Inherited SELECT covers product tables/views as they appear after the gold task.
         f"GRANT SELECT ON SCHEMA `{catalog}`.`{schema}` TO `{sp}`",
         # the monitor appends its probe-rule alert transitions itself
         f"GRANT MODIFY ON TABLE `{catalog}`.`{schema}`.`alert_events` TO `{sp}`",
@@ -93,6 +93,8 @@ def grant_monitor_access(
         f"GRANT MODIFY ON TABLE `{catalog}`.`{schema}`.`alert_mutes` TO `{sp}`",
         f"GRANT MODIFY ON TABLE `{catalog}`.`{schema}`.`slo_specs` TO `{sp}`",
         f"GRANT MODIFY ON TABLE `{catalog}`.`{schema}`.`monitor_audit` TO `{sp}`",
+        f"GRANT MODIFY ON TABLE `{catalog}`.`{schema}`.`model_prices` TO `{sp}`",
+        f"GRANT MODIFY ON TABLE `{catalog}`.`{schema}`.`funnel_specs` TO `{sp}`",
     ):
         try:
             spark.sql(stmt)
@@ -102,6 +104,20 @@ def grant_monitor_access(
     for a in apps:
         if a.name == monitor_name:
             continue
+        if a.service_principal_client_id:
+            try:
+                # CAN_USE covers every viewer endpoint on the monitor, not only /api/policy.
+                w.apps.update_permissions(
+                    app_name=monitor_name,
+                    access_control_list=[
+                        AppAccessControlRequest(
+                            service_principal_name=a.service_principal_client_id,
+                            permission_level=AppPermissionLevel.CAN_USE,
+                        )
+                    ],
+                )
+            except Exception as e:  # noqa: BLE001 — one grant must not stop the fleet scan
+                print(f"policy CAN_USE grant for {a.name} failed: {e}")
         try:
             w.apps.update_permissions(
                 app_name=a.name,
@@ -146,6 +162,7 @@ def grant_monitor_access(
 
 def main() -> None:
     from ops_tables import ensure_ops_tables
+    from product_sql import FUNNEL_DDL, MODEL_PRICES_DDL
     from schema_utils import ensure_columns, workspace_column
     from telemetry_health import sampler_ratio
 
@@ -168,6 +185,9 @@ def main() -> None:
     spark.sql(ALERT_DDL.format(fq=fq))
     ensure_ops_tables(spark, fq)
     workspace_column(spark, f"{fq}.monitor_audit", str(w.get_workspace_id()))
+    # Create writable product tables before granting; the gold task runs afterwards.
+    spark.sql(MODEL_PRICES_DDL.format(fq=fq))
+    spark.sql(FUNNEL_DDL.format(fq=fq))
     ensure_columns(spark, f"{fq}.alert_events", {"muted": "BOOLEAN", "incident_id": "STRING"})
     workspace_column(spark, f"{fq}.alert_events", str(w.get_workspace_id()))
     ws = str(w.get_workspace_id())

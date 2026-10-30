@@ -21,6 +21,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import httpx
+import routes_product
 import uvicorn
 from auth import require_admin
 from databricks.sdk import WorkspaceClient
@@ -127,6 +128,7 @@ async def refresh_fleet() -> None:
     except Exception:  # noqa: BLE001 — retain cached windows during a warehouse outage
         log.warning("mute refresh failed", exc_info=True)
     log.info("fleet refreshed: %d apps visible", len(fleet))
+    await routes_product.refresh_policies(str(await asyncio.to_thread(_workspace_id)))
 
 
 async def _probe_one(client: httpx.AsyncClient, name: str, url: str, headers: dict) -> None:
@@ -369,6 +371,9 @@ except Exception:  # noqa: BLE001
     WORKSPACES = []
 if not any(x.get("name") == WORKSPACE_NAME for x in WORKSPACES):
     WORKSPACES.insert(0, {"name": WORKSPACE_NAME, "url": ""})  # "" = this one
+
+
+app.include_router(routes_product.router(require_admin, _workspace_id, fleet, _summary))
 
 
 @app.get("/healthz")

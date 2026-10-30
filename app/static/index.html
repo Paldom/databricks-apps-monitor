@@ -546,7 +546,7 @@ const GROUPS=[
   {name:'Overview',tabs:[['overview','Overview']]},
   {name:'Investigate',tabs:[['errors','Errors'],['traces','Traces'],['logs','Logs'],['requests','Traffic'],['deps','Dependencies'],['timeline','Changes']]},
   {name:'Assess',tabs:[['quality','Code & security'],['cost','Cost'],['genai','AI usage']]},
-  {name:'Usage',tabs:[['adoption','Usage']]},
+  {name:'Usage',tabs:[['adoption','Usage'],['product','Product & guardrails']]},
   {name:'Operate',tabs:[['operate','Operate']]},
   {name:'Browser checks',tabs:[['uitests','Browser checks']]},
 ];
@@ -601,6 +601,7 @@ const TAB_INFO={
   quality:'The app review: what it is, the source & package scan, and an automated review (advisory — not a human sign-off).',
   cost:'Compute cost (list-price estimate, billing lags hours), AI tokens, budget and forecast.',
   adoption:'Daily and per-user usage, from pseudonymous (hashed) identifiers.',
+  product:'Ordered journeys, retention, browser experience, masked findings and token policy.',
   genai:'AI calls, tokens, latency and quality signals per model.',
   operate:'Reachability probes, synthetic journeys, resources, deployments, access and settings.',
   uitests:'Real-browser checks (Playwright); results and screenshots land in the ui_tests volume.',
@@ -656,7 +657,11 @@ async function loadTab(tab){
     }else if(tab==='timeline'){
       set(renderTimeline(await get(A('/timeline'))));
     }else if(tab==='cost'){
-      set(renderCost(await get(A('/cost'))));
+      const [cost,units]=await Promise.all([get(A('/cost')),get(A('/unit-economics')).catch(e=>({error:e.message}))]);
+      set(renderEconomics(units)+renderCost(cost));
+    }else if(tab==='product'){
+      set(await renderProduct(CUR));
+      bindProductTraces();
     }
   }catch(e){body.innerHTML=`<div class="errbox">${esc(e.message)}<br><span style="font-size:11px">Deep pages need the SQL warehouse + telemetry/job tables — data appears minutes after apps start exporting / jobs run.</span></div>`;}
 }
@@ -1366,6 +1371,7 @@ async function renderGovernanceSeg(){
       ${kpi('Budgets set',Object.values(ENRICH.config||{}).filter(c=>+c.budget_usd_month>0).length,'','burn alerts at 70/100%')}
       ${kpi('Ready',rows.filter(r=>r.passed===r.total).length+'<span class="unit">/'+rows.length+'</span>','','all checks green')}
     </div>
+    <!-- S4 --><div id="fleet-product"><div class="loading">Loading unit economics and leaderboard…</div></div>
     <section><h2>Cost allocation — month to date</h2>
     <table class="data" style="background:var(--card)"><tr><th>team</th><th>cost_center</th><th>apps</th><th>compute $</th><th>AI tokens</th><th>AI calls</th></tr>
     ${GOV.chargeback.map(r=>`<tr><td><b>${esc(r.team)}</b></td><td>${esc(r.cost_center)}</td><td>${fmt(r.apps)}</td>
@@ -1393,6 +1399,86 @@ async function renderGovernanceSeg(){
       ||'<tr><td colspan="5" class="loading">audit snapshot appears after the next inventory run</td></tr>'}</table></section>`;
   v.insertAdjacentHTML('afterbegin','<!-- S6 --><section id="monitorCost">Loading cost of monitoring…</section>');
   loadMonitorCost();
+  loadFleetProduct();
+}
+
+// Product blocks keep their own error states so an unavailable job does not hide other evidence.
+function productTable(rows,columns){
+  if(!rows?.length)return '<div class="loading">No observations yet.</div>';
+  return `<div style="overflow:auto"><table class="data"><tr>${columns.map(([key,label])=>`<th>${esc(label)}</th>`).join('')}</tr>${rows.map(r=>`<tr>${columns.map(([key])=>`<td>${r[key]==null?'–':esc(String(r[key]))}</td>`).join('')}</tr>`).join('')}</table></div>`;
+}
+function productError(d){return d.error?`<div class="errbox">${esc(d.error)}</div>`:''}
+function dollars(v){return v==null?'–':'$'+fmt(v,4)}
+function renderEconomics(d){
+  if(d.error)return productError(d);
+  const rows=d.apps||[];
+  const sum=k=>rows.length&&rows.every(r=>r[k]!=null)?rows.reduce((n,r)=>n+Number(r[k]),0):null;
+  const total=sum('total_usd'),requests=sum('requests');
+  return `<!-- S4 --><section><h2>Unit economics · ${esc(d.days||30)} days</h2>
+    <p class="tabinfo">AI: list price, estimate. Unpriced tokens leave total costs unknown. Idle cost is spend in hours with no observed real requests; missing or sampled telemetry can overstate it.</p>
+    <div class="kpis">${kpi('Total estimated cost',dollars(total),'','compute + AI')}${kpi('AI estimate',dollars(sum('ai_usd')),'','effective model prices')}${kpi('Idle compute',dollars(sum('idle_usd')),'','zero observed real requests')}${kpi('Per 1k requests',dollars(requests&&total!=null?total/requests*1000:null),'','real traffic')}</div>
+    ${productTable(rows.map(r=>({...r,total_usd:dollars(r.total_usd),usd_per_1k_requests:dollars(r.usd_per_1k_requests),usd_per_session:dollars(r.usd_per_session),usd_per_user:dollars(r.usd_per_user),usd_per_outcome:dollars(r.usd_per_outcome)})),[['name','App'],['total_usd','Total estimate'],['usd_per_1k_requests','$/1k requests'],['usd_per_session','$/session'],['usd_per_user','$/user'],['usd_per_outcome','$/outcome'],['completions','Outcomes'],['unpriced_days','Unpriced days']])}</section>`;
+}
+function productSettings(c={},fleet=false){
+  return `<!-- K7 --><section><h2>Outcome and token budget settings</h2>
+    ${fleet?`<label>App <select id="product-app" onchange="loadProductSettings()">${(DATA?.apps||[]).map(a=>`<option value="${esc(a.name)}">${esc(a.name)}</option>`).join('')}</select></label>`:''}
+    <div id="product-settings-fields"><label>Outcome event <input id="outcome-event" maxlength="64" value="${esc(c.outcome_event||'')}" placeholder="report_generated"></label>
+    <label>Daily token budget <input id="token-budget" type="number" min="0" step="1" value="${esc(c.token_budget_day||0)}"></label>
+    <button class="action" onclick="saveProductSettings()">Save settings</button></div>
+    <p class="tabinfo">Admin only. Zero disables the token budget. Policy updates hourly: warn at 80% or when one more hour at the previous hour's rate would exhaust the budget; block at 100%. SDK enforcement requires SDK v2.</p>
+    <div id="product-settings-status">Policy: ${esc(c.throttle||'none')} · today ${fmt(c.tokens_today)} tokens · last completed hour ${fmt(c.tokens_last_hour)} · updated ${esc(c.policy_updated_at||'pending')}</div></section>`;
+}
+async function productPut(path,body){
+  const r=await fetch(path,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  if(!r.ok){const d=await r.json().catch(()=>({}));throw new Error(typeof d.detail==='string'?d.detail:'Invalid settings or insufficient permissions ('+r.status+')')}
+  return r.json();
+}
+async function loadProductSettings(){
+  const name=$('#product-app').value,out=$('#product-settings-status');
+  $('#product-settings-fields').querySelectorAll('input,button').forEach(e=>e.disabled=true);
+  try{const c=await get(`api/apps/${encodeURIComponent(name)}/product-config`);if($('#product-app')?.value!==name)return;
+    $('#outcome-event').value=c.outcome_event||'';$('#token-budget').value=c.token_budget_day||0;
+    out.textContent='Policy: '+(c.throttle||'none')+' · updated '+(c.policy_updated_at||'pending');
+    $('#product-settings-fields').querySelectorAll('input,button').forEach(e=>e.disabled=false);
+  }catch(e){out.textContent=e.message}
+}
+async function saveProductSettings(){
+  const name=$('#product-app')?.value||CUR,out=$('#product-settings-status');
+  try{await productPut(`api/apps/${encodeURIComponent(name)}/product-config`,{outcome_event:$('#outcome-event').value.trim(),token_budget_day:Number($('#token-budget').value)});out.textContent='Saved. Token policy will update after the next hourly evaluation.'}catch(e){out.textContent=e.message}
+}
+async function renderProduct(name){
+  const root=`api/apps/${encodeURIComponent(name)}`;
+  const data=await Promise.all(['funnels','cohorts','rum','guardrails','product-config','events'].map(p=>get(root+'/'+p).catch(e=>({error:e.message}))));
+  const [f,c,r,g,config,events]=data;
+  return `<!-- S7 --><section><h2>Session funnels</h2><p class="tabinfo">Ordered events or journey steps within 30 minutes, grouped by app version. Each session counts once at its deepest step. Raw retention bounds this view.</p>
+    <details><summary>Observed business events · 7 days</summary>${productError(events)||productTable(events.events,[['event_name','Event'],['app_version','Version'],['events','Count'],['sessions','Sessions'],['last_seen','Last seen']])}</details>
+    ${productError(f)||productTable(f.steps,[['funnel','Funnel'],['app_version','Version'],['step_name','Step'],['sessions','Sessions'],['dropoff_pct','Drop-off %']])}
+    <details><summary>Configure funnel (admin)</summary>${productTable((f.specs||[]),[['funnel','Funnel'],['steps','Steps']])}<label>Name <input id="funnel-name" maxlength="100"></label><label>Steps, separated by commas <input id="funnel-steps" placeholder="upload,validate,submit"></label><button class="action" onclick="saveFunnel()">Save funnel</button><div id="funnel-status"></div></details></section>
+    <section><h2>Weekly cohorts</h2><p class="tabinfo">First observed week within raw retention; the current week is incomplete. Synthetic traffic is excluded.</p>${productError(c)||productTable(c.cohorts,[['cohort_week','First week'],['week_number','Weeks later'],['cohort_size','Cohort users'],['retained_users','Retained users'],['retention_pct','Retention %'],['partial_week','Incomplete week']])}</section>
+    <section><h2>Browser experience · 7 days</h2>${productError(r)||productTable(r.routes,[['date','Date'],['route','Route'],['page_views','Page views'],['p75_lcp','p75 LCP ms'],['p75_cls','p75 CLS'],['p75_inp','p75 INP ms'],['js_errors','JS errors'],['fingerprint','Error group']])}
+      ${(r.routes||[]).filter(x=>x.trace_id&&Number(x.js_errors)>0).map(x=>`<button class="action" data-product-trace="${esc(x.trace_id)}">Trace for ${esc(x.route)}</button>`).join('')}</section>
+    <!-- S8 --><section><h2>Guardrail samples · 7 days</h2><p class="tabinfo">Sampled detection, not a full traffic audit. Excerpts are fixed masks; hashes group findings. New template alerts require a prior baseline and at least five daily prompts.</p>
+      ${productError(g)||productTable(g.findings,[['ts','Time'],['kind','Kind'],['severity','Severity'],['excerpt_masked','Masked excerpt'],['excerpt_hash','Hash']])}
+      ${(g.findings||[]).map(x=>`<button class="action" data-product-agent="true" data-product-trace="${esc(x.trace_id)}">${esc(x.kind)} trace ${esc(x.trace_id.slice(0,12))}</button>`).join('')}
+      <h2>Normalized prompt shares</h2>${productTable(g.templates,[['date','Date'],['template_hash','Template hash'],['samples','Samples'],['daily_samples','Daily samples'],['share','Share']])}</section>
+    ${config.error?productError(config):productSettings(config)}`;
+}
+function bindProductTraces(){document.querySelectorAll('[data-product-trace]').forEach(b=>b.onclick=()=>{const tid=b.dataset.productTrace;if(b.dataset.productAgent)openAgentTrace(tid);else openTrace(tid)})}
+async function saveFunnel(){
+  const out=$('#funnel-status');
+  try{await productPut(`api/apps/${encodeURIComponent(CUR)}/funnels/${encodeURIComponent($('#funnel-name').value.trim())}`,{steps:$('#funnel-steps').value.split(',').map(s=>s.trim())});out.textContent='Saved. Reopen this tab to refresh results.'}catch(e){out.textContent=e.message}
+}
+async function loadFleetProduct(){
+  const [u,l,p]=await Promise.all(['unit-economics','leaderboard','model-prices'].map(x=>get('api/'+x).catch(e=>({error:e.message}))));
+  const target=$('#fleet-product');if(!target)return;
+  target.innerHTML=renderEconomics(u)+`<!-- S7 --><section><h2>Active app leaderboard</h2><p class="tabinfo">${esc(l.formula||'')}</p>${productError(l)||productTable((l.apps||[]).map(a=>({...a,...a.components})),[['name','App'],['score','Score'],['coverage_pct','Evidence %'],['availability','Availability'],['errors','Errors'],['latency','Latency'],['scan','Scan'],['review','Review'],['cost','Cost trend'],['adoption','Adoption']])}</section>
+    <!-- S4 --><details><summary>Model prices (admin)</summary>${productError(p)||productTable(p.prices,[['model','Model'],['effective_from','From'],['input_usd_per_mtok','$/M input'],['output_usd_per_mtok','$/M output'],['source','Source']])}
+      <label>Model <input id="price-model" maxlength="200"></label><label>Effective date <input id="price-date" type="date"></label><label>$/million input <input id="price-input" type="number" min="0" step="any"></label><label>$/million output <input id="price-output" type="number" min="0" step="any"></label><label>Source <select id="price-source"><option>list</option><option>contract</option></select></label><button class="action" onclick="saveModelPrice()">Save price</button><div id="price-status"></div></details>`+productSettings({},true);
+  if($('#product-app')?.value)loadProductSettings();
+}
+async function saveModelPrice(){
+  const out=$('#price-status');
+  try{if(!$('#price-input').value.trim()||!$('#price-output').value.trim())throw new Error('Enter both prices; use 0 explicitly for free tokens.');await productPut('api/model-prices',{model:$('#price-model').value.trim(),effective_from:$('#price-date').value,input_usd_per_mtok:Number($('#price-input').value),output_usd_per_mtok:Number($('#price-output').value),source:$('#price-source').value});out.textContent='Saved. Estimates are recomputed by the next cost rollup.'}catch(e){out.textContent=e.message}
 }
 
 // ------------------------------------------------------------------- loops

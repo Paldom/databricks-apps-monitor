@@ -16,6 +16,14 @@ this is the exhaustive list.
 | Package analysis (py + npm)      | installed vs latest (PyPI/npm registry), staleness class, per-package CVE ids                    | `deps_json` in `code_scans`                       |
 | Agentic code review              | Databricks-hosted Claude reviews each app's source: verdict + scores                             | `llm_reviews`                                     |
 | Cost tracking                    | billing × list prices; billable LLM spans per model; gateway tokens stored separately; requester SP IDs resolved through inventory | `costs_daily`, `costs_ai_daily`, `apps_inventory` |
+| S4 unit economics | effective-dated model prices, per-model token totals, hourly billing allocation for idle spend; per-app Cost tiles and fleet Governance tiles | `model_prices`, `costs_ai_daily`, `costs_daily.idle_usd`, `v_unit_economics`, `app_config.outcome_event` |
+| S7 business funnels | deduplicated `monitor.events` logs plus named server `journey.step`; ordered steps within 30 minutes, session deduplication and release split | `v_events`, `funnel_specs`, `v_funnels` |
+| S7 cohorts | first observed week and weekly retention of real hashed users, including zero-retention weeks | `v_cohorts`, raw `otel_spans` |
+| S7 leaderboard | weighted component scores, published formula and evidence coverage; excludes stopped and deleted apps | `v_leaderboard`, live probes, `app/routes_product.py` |
+| S7 browser experience | `monitor.rum` logs: page/route views, p75 LCP/CLS/INP per route/day and hashed JS error groups with trace links | `v_rum_daily`, `otel_logs` |
+| S8 guardrails | email/phone/IBAN/card detectors (IBAN checksum, card Luhn); redacted FMAPI jailbreak/policy classifier; fixed masks and hashes only | `guardrail_findings`, `guardrail_samples`, `monitor_quality` |
+| S8 prompt drift | normalized prompt hashes; new hash exceeds 20% of daily samples, with a prior seven-day baseline and at least five prompts | `guardrail_samples`, `guardrail_findings`, `alert_events` |
+| K7 token policy | hourly metric totals with billable-span fallback; warn/block budget state; memory-only policy API refreshed alongside fleet | `app_config.token_budget_day`, `throttle`, `tokens_today`, `tokens_last_hour`, `policy_updated_at` |
 | Synthetic monitoring             | probes/journeys/capacity send `x-monitor-synthetic`; queries prefer `traffic.kind`, with legacy healthz-name fallback | `app/journeys.json`, `otel_spans` |
 | Alerting                         | startup rehydration; job-owned firing/resolved transitions; partial scans resolve only evaluated apps; open alerts in UI | `alert_events`, `v_alerts_open` |
 | Maintenance windows (S1)         | Admin mute/unmute with app/rule globs and UTC start/end; fleet-refresh cache; evaluation continues, muted transitions persist and skip webhooks | `alert_mutes`, `alert_events.muted`, `monitor_audit` |
@@ -105,10 +113,86 @@ additive either.
 Cost and GenAI queries prefer `monitor.llm.billable` when an app/day has markers
 (including explicit false). Otherwise they select MLflow `LLM`/`CHAT_MODEL` spans,
 with untyped legacy spans used only when the trace has no typed LLM span. Model names
-are retained for future pricing; `ai_usd` remains unset. `ai_tokens_gateway` is a
+are priced with the latest `model_prices.effective_from` on or before the usage date.
+`ai_usd` stays NULL if any consumed model/direction lacks a price; total unit costs also
+stay unknown rather than understate the bill. Zero-token directions do not require a
+price. The UI labels AI dollars **list price, estimate**, including estimates derived
+from an operator-supplied contract price. `ai_tokens_gateway` is a
 reconciliation signal, not an input to span token totals. Unmapped gateway requesters
 are `(untagged)`, never requester emails. Existing costs are corrected within the
 configured rollup window (30 days by default).
+
+Token totals prefer `gen_ai.client.token.usage` histogram sums per app/model/day/token
+direction, using billable spans only when that metric direction is absent. This avoids
+adding sampled spans to unsampled metrics. Metric counters are differenced for cumulative
+temporality (including reset handling), summed for delta temporality, and deduplicated
+before aggregation. The reader accepts flattened `sum`, `histogram.sum`, `value.sum` and
+`data.sum`, with model/direction in `attributes`; cumulative stream keys use start time,
+instance ID and dimensions. A preceding day supplies the boundary sample. An absent
+metrics table also falls back to spans. Missing exports and sampled span fallback can
+underestimate tokens; first observations of long-lived cumulative streams can span the
+reporting boundary. This is an hourly circuit breaker, not an exact token reservation.
+
+Idle dollars apportion billing intervals across UTC hours and sum the portions with
+zero **observed** real requests. They are a subset of compute dollars, not an extra
+charge. Missing telemetry or trace sampling can overstate idle spend. Unit denominators
+exclude synthetic traffic; cross-day users/sessions use HLL unions. Outcome counts and
+funnels use retained raw events. Cohorts use individual hashed-user membership from
+raw spans: HLL sketches cannot reconstruct retention. Cohort dates mean first observed
+within retention, not lifetime signup, and the current week is marked incomplete.
+
+Product UI is under **Usage → Product & guardrails**, **Cost**, and fleet **Governance**.
+Read APIs are `GET /api/unit-economics`, `/api/leaderboard`, `/api/model-prices`, and
+`/api/apps/{name}/{unit-economics|events|funnels|cohorts|rum|guardrails|product-config}`.
+Admin writes use `PUT /api/model-prices` (model, effective_from, input/output_usd_per_mtok,
+source=list|contract), `PUT /api/apps/{name}/funnels/{funnel}` (steps array, 2–20 entries),
+and `PUT /api/apps/{name}/product-config` (outcome_event and token_budget_day).
+Values are bound SQL parameters, mutations require the existing `MONITOR_ADMINS` check.
+Prices are applied on the next daily cost rollup; outcome/funnel changes are read by views.
+
+The leaderboard normalizes available components to 0–100 and weights availability 25%,
+errors 20%, latency 15%, scan 15%, review 10%, cost trend 10%, adoption 5%. It shows each
+component and observed weight; missing evidence is excluded, not scored as perfect.
+Availability is explicitly probe/proxy reachability. Latency uses the worst daily p95
+against a published 2500 ms budget; review scores are scaled from 0–10; adoption saturates
+at 100 distinct weekly users. The complete formula is served by the API and displayed
+in Governance. It is implemented once, as tested pure Python, over SQL components.
+
+`monitor.events` accepts the roadmap `event=custom`, `name`, `event_id`, `sid`, `user`,
+`rid` contract. Log attributes and a matching server envelope supply traffic kind and
+app version (unknown versions stay explicit). `monitor.rum` accepts single events or
+an `events` batch: type=page_view/pageview/route_view, type=error/js_error/unhandledrejection
+with message/stack, and name/metric=LCP/CLS/INP with value; route/path identifies the route.
+Each RUM event's `rid` joins the server request envelope for a backend trace link; the
+batch ingestion request is not presented as the failing request. Route query strings
+and fragments are removed. Logs can also carry `event=rum` when logger scope is unavailable. RUM is sampled browser
+evidence; page views and vitals are reported separately from fingerprinted error groups.
+
+The quality job reserves sampled trace IDs durably before calling the judge. Defaults:
+10 new traces per run, 50 per app per UTC day (`--samples`, `--daily-sample-cap`), including
+failed judge calls. The existing review job serializes runs. Detectors run on previews
+locally, then PII and common secret patterns are redacted before FMAPI. This adds monitor
+protection while SDK v2 is merged separately; it does not certify arbitrary prose as
+PII-free. No preview or model-generated excerpt/comment is written to findings; the
+ledger stores only IDs, hashes and classification state. Judge failures do not resolve
+policy alerts. Alerts are owned/scoped separately: `guardrail_pii_rate`,
+`guardrail_policy_rate`, `prompt_template_drift`, and existing `quality_regression`.
+Finding-rate threshold defaults to 10% per app/day (`--finding-rate`); drift share is
+configurable with `--drift-share`. Initial template baselines do not alert.
+
+The hourly gold job evaluates today's UTC tokens and the previous completed UTC hour.
+It warns at 80% of budget or if today's usage plus the last hour would reach budget,
+and blocks at 100%; zero/unset budgets produce `none`. Owned alerts are
+`token_budget_warn` and `token_budget_block`. `GET /api/policy/{app}` returns only
+`{"throttle":"none|warn|block"}` from memory and **never issues SQL**. Fleet refresh loads
+all policies in one query. Missing/invalid entries, cache older than five minutes,
+policy computation older than three hours, and previous-day policies fail open to `none`.
+SDK enforcement is on the separate SDK v2 branch; the monitor does not stop model calls itself.
+
+For the existing externally managed Genie space, curate these additional gold objects:
+`v_unit_economics`, `v_events`, `v_funnels`, `v_cohorts`, `v_leaderboard`, `v_rum_daily`.
+This local implementation does not modify that external space. `v_leaderboard` exposes
+components; its final score is computed by the monitor API. Avoid adding raw preview data.
 
 HTTP queries coalesce stable and legacy status attributes, and count HTTP 4xx/5xx or
 OTel error status as errors. The basic template opts into `http/dup` and parent-based
@@ -129,4 +213,6 @@ conditions, so restarts and later job runs can recover state without a time cuto
 | deploying user | workspace admin-ish: create schema/apps/jobs, read system tables   | —                                              |
 | monitor app SP | `CAN_USE` warehouse, `CAN_MANAGE_RUN` on jobs                      | bundle resource bindings (automatic)           |
 | monitor app SP | `CAN_USE` on every fleet app (probing), `USE/SELECT` on the schema | **inventory job** (self-bootstrapping, hourly) |
+| monitor app SP | `MODIFY` on `model_prices`, `funnel_specs`, `app_config`; inherited schema `SELECT` covers product views, findings and sample ledger | **inventory job** |
+| every fleet app SP | `CAN_USE` on the monitor for the SDK policy request. **This grants access to all viewer endpoints and fleet telemetry exposed by the monitor, not just that app's policy.** Admin mutations still require `MONITOR_ADMINS`; fleet SPs receive no direct UC grants from this change. | **inventory job**, additive Apps ACL update |
 | demo app SPs   | `CAN_QUERY` serving endpoint (agent only)                          | bundle resource binding                        |

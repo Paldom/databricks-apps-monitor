@@ -519,7 +519,68 @@ def check_budgets(spark, fq: str) -> None:
     print(f"budgets: {len(alerts)} alerts")
 
 
+def token_policy(today: int, last_hour: int, budget: int | None) -> str:
+    if not budget or budget <= 0:
+        return "none"
+    if today >= budget:
+        return "block"
+    return "warn" if today >= 0.8 * budget or today + last_hour >= budget else "none"
+
+
+def check_token_budgets(spark, fq: str, workspace_id: str, cat: str, sch: str) -> None:
+    from product_sql import token_usage_sql
+
+    rows = spark.sql(
+        f"""WITH tokens AS ({token_usage_sql(fq, 1, spark.catalog.tableExists(f"{fq}.otel_metrics"))}), totals AS (
+          SELECT name,
+            sum(CASE WHEN date = current_date() THEN tokens ELSE 0 END) AS today,
+            sum(CASE WHEN hour = date_trunc('hour', now()) - INTERVAL 1 HOUR THEN tokens ELSE 0 END) AS last_hour
+          FROM tokens GROUP BY name
+        ) SELECT c.name, c.token_budget_day, coalesce(t.today, 0) AS today,
+                 coalesce(t.last_hour, 0) AS last_hour
+          FROM {fq}.app_config c LEFT JOIN totals t USING (name) WHERE c.workspace_id = :ws""",
+        args={"ws": workspace_id},
+    ).collect()
+    alerts = []
+    for row in rows:
+        state = token_policy(row["today"], row["last_hour"], row["token_budget_day"])
+        spark.sql(
+            f"""UPDATE {fq}.app_config SET throttle = :state, tokens_today = :today,
+              tokens_last_hour = :last_hour, policy_updated_at = now()
+              WHERE workspace_id = :ws AND name = :app""",
+            args={
+                "state": state,
+                "today": row["today"],
+                "last_hour": row["last_hour"],
+                "ws": workspace_id,
+                "app": row["name"],
+            },
+        )
+        if state != "none":
+            alerts.append(
+                {
+                    "rule": f"token_budget_{state}",
+                    "app": row["name"],
+                    "severity": "critical" if state == "block" else "warning",
+                    "message": f"token policy {state}: {row['today']} today / {row['token_budget_day']} budget; "
+                    f"{row['last_hour']} in last completed hour",
+                    "value": row["today"],
+                }
+            )
+    from source_scan import emit_alerts
+
+    emit_alerts(
+        spark,
+        cat,
+        sch,
+        alerts,
+        owned_rules=("token_budget_warn", "token_budget_block"),
+        evaluated_apps={r["name"] for r in rows},
+    )
+
+
 def main() -> None:
+    from product_sql import CONFIG_COLUMNS, FUNNEL_DDL, MODEL_PRICES_DDL, product_views_sql
     from schema_utils import ensure_columns, workspace_column
 
     p = argparse.ArgumentParser()
@@ -532,12 +593,25 @@ def main() -> None:
 
     w = WorkspaceClient()
     spark = SparkSession.builder.getOrCreate()
+    spark.conf.set("spark.sql.session.timeZone", "UTC")
     ts = datetime.now(timezone.utc)
     apps = list(w.apps.list())
 
     spark.sql(CONFIG_DDL.format(fq=fq))
-    ensure_columns(spark, f"{fq}.app_config", {"capacity_path": "STRING"})
+    ensure_columns(spark, f"{fq}.app_config", {"capacity_path": "STRING", **CONFIG_COLUMNS})
     workspace_column(spark, f"{fq}.app_config", str(w.get_workspace_id()))
+    spark.sql(MODEL_PRICES_DDL.format(fq=fq))
+    spark.sql(FUNNEL_DDL.format(fq=fq))
+    # Gold may run before the daily cost job on a fresh installation.
+    from cost_rollup import DDL as COST_DDL
+    from llm_review import DDL as REVIEW_DDL
+
+    from source_scan import DDL_SCANS
+
+    spark.sql(COST_DDL.format(fq=fq))
+    spark.sql(DDL_SCANS.format(fq=fq))
+    spark.sql(REVIEW_DDL.format(fq=fq))
+    ensure_columns(spark, f"{fq}.costs_daily", {"idle_usd": "DOUBLE"})
     materialize_aggregates(spark, fq, str(w.get_workspace_id()))
     monitor = next((a for a in apps if a.name == args.monitor_app), None)
     if monitor and monitor.service_principal_client_id:
@@ -554,6 +628,11 @@ def main() -> None:
             print(f"view {name} ok")
         except Exception as e:  # noqa: BLE001 — base table may not exist yet
             print(f"view {name} failed: {e}")
+
+    for name, sql in product_views_sql(fq, str(w.get_workspace_id())):
+        spark.sql(sql)
+        print(f"view {name} ok")
+    check_token_budgets(spark, fq, str(w.get_workspace_id()), args.catalog, args.schema)
 
     for tbl, comment in TABLE_COMMENTS:
         try:  # platform-created tables may not exist yet / may be owned elsewhere
