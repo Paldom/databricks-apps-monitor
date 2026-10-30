@@ -215,6 +215,10 @@ main.inspect{max-width:1440px;margin:0 auto}
   <div class="right">
     <select id="wsel" title="Workspace" style="display:none;border:1px solid var(--border-strong);border-radius:8px;padding:6px 8px;font-family:var(--font);font-size:12.5px;font-weight:500;color:var(--text);background:var(--card)"></select>
     <span id="refreshed">loading…</span>
+    <!-- S13 -->
+    <button class="action" onclick="location.href='/status'">Status</button>
+    <!-- S12 -->
+    <button class="action" id="federation" style="display:none" onclick="location.hash='#/federation'">Workspaces</button>
     <button class="action" onclick="location.hash='#/ask'" title="Ask about the fleet in plain language">🧞 Ask</button>
     <button class="action" id="bell" onclick="location.hash='#/alerts'" title="Alerts">🔔 <span id="bellCount"></span></button>
     <button class="action" id="sync" title="Runs the inventory job: snapshots the fleet and grants the monitor probe access">Refresh inventory</button>
@@ -241,7 +245,7 @@ function route(){
   const h=location.hash;
   let m=h.match(/^#\/app\/([^/]+)(?:\/([a-z]+))?/);
   if(m){const t=m[2]||'overview';return{page:'app',app:decodeURIComponent(m[1]),tab:TAB_ALIAS[t]||t};}
-  const seg=(h.match(/^#\/(catalog|topology|governance|alerts|ask)/)||[])[1];
+  const seg=(h.match(/^#\/(catalog|topology|governance|alerts|ask|federation)/)||[])[1];
   return{page:'home',seg:seg||'overview'};
 }
 function goApp(name,tab){location.hash=`#/app/${encodeURIComponent(name)}/${tab||'overview'}`}
@@ -266,6 +270,7 @@ function renderDashboard(){
   if(!DATA){v.innerHTML='<div class="loading">loading fleet…</div>';return}
   if(SEG==='governance'){renderGovernanceSeg();return;}
   if(SEG==='alerts'){renderAlertsSeg();return;}
+  if(SEG==='federation'){renderFederation();return;}
   let body='';
   if(SEG==='overview')body=overviewSegHtml();
   else if(SEG==='catalog')body=catalogSegHtml();
@@ -1482,6 +1487,23 @@ async function saveModelPrice(){
 }
 
 // ------------------------------------------------------------------- loops
+// S12: workspace-qualified rows keep identically named apps separate.
+let FEDERATION=null;
+async function renderFederation(){
+  const view=$('#view');
+  view.innerHTML=dashHeadHtml()+'<p>Loading workspaces…</p>';
+  try{
+    FEDERATION=await get('api/reach/fleet');
+    if(SEG!=='federation')return;
+    const names=new Map(FEDERATION.apps.map(a=>[a.workspace_id,a.workspace_name]));
+    view.innerHTML=dashHeadHtml()+`<label>Workspace <select id="fleetWorkspace"><option value="">All workspaces</option>${[...names].map(([id,name])=>`<option value="${esc(id)}">${esc(name)} (${esc(id)})</option>`).join('')}</select></label><p>Hourly inventory and daily usage. Open the workspace monitor for live probes and trace details.</p><div id="federationRows"></div>`;
+    const draw=()=>{const id=$('#fleetWorkspace').value;const rows=FEDERATION.apps.filter(a=>!id||a.workspace_id===id);
+      $('#federationRows').innerHTML=`<table class="data"><tr><th>Workspace</th><th>App</th><th>State</th><th>Requests · 7d</th><th>Errors · 7d</th><th>DBUs · 7d</th><th>USD · 7d</th><th>Snapshot</th></tr>${rows.map(a=>`<tr><td>${esc(a.workspace_name)} (${esc(a.workspace_id)})</td><td>${esc(a.name)}</td><td>${esc(a.app_state)}</td><td>${fmt(a.requests_7d)}</td><td>${fmt(a.errors_7d)}</td><td>${fmt(a.dbus_7d,2)}</td><td>${fmt(a.usd_7d,2)}</td><td>${esc(a.snapshot_ts)}</td></tr>`).join('')}</table>`;};
+    $('#fleetWorkspace').onchange=draw;draw();
+  }catch(e){view.textContent='Federation unavailable: '+e.message;}
+}
+get('api/reach/fleet').then(d=>{if(d.mode==='hub'){$('#federation').style.display='';if(!location.hash)location.hash='#/federation';}}).catch(()=>{});
+
 // only the live Overview segment re-renders on tick; catalog/topology/governance are
 // navigated-to and refresh on nav (so we never clobber a sort, a graph, or a form input)
 function liveRerender(){

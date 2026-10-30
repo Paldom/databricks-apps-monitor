@@ -23,6 +23,10 @@ resources:
             value: ${var.catalog}
           - name: MONITOR_SCHEMA
             value: ${var.schema}
+          - name: DEPLOYMENT_MODE
+            value: ${var.deployment_mode}
+          - name: HUB_CATALOG
+            value: ${var.hub_catalog}
           - name: MONITOR_ADMINS
             value: ${var.monitor_admins}
           - name: MONITOR_GENIE_SPACE_ID

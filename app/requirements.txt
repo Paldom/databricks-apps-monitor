@@ -1,4 +1,5 @@
 fastapi
+mcp>=1.12,<2
 uvicorn
 httpx
 databricks-sdk>=0.38.0

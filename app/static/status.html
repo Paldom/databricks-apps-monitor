@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Service status</title>
+<style>
+body{font:16px system-ui,sans-serif;background:#f7f8fa;color:#172033;max-width:900px;margin:40px auto;padding:0 20px}
+article{padding:20px;background:white;border:1px solid #dce1e8;border-radius:12px;margin:16px 0}
+h1{font-size:30px}h2{font-size:18px}.bars{display:flex;gap:3px;margin:16px 0}.bar{flex:1;height:30px;background:#d1d5db;border-radius:3px}.ok{background:#16a34a}.bad{background:#dc2626}.partial{background:#eab308}p{color:#475569}.stale{color:#b45309}
+</style></head>
+<body data-source="/api/status"><!-- S13 -->
+<h1>Service status</h1><p id="updated" role="status">Loading…</p>
+<p>Last 24 hours · green: available · yellow: partial · red: unavailable · grey: no observations</p>
+<div id="apps"></div><div id="incidents"></div><div id="maintenance"></div>
+<script>
+const el=(tag,text,parent)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=text;if(parent)parent.appendChild(n);return n};
+async function refresh(){
+  try{
+    const r=await fetch(document.body.dataset.source,{cache:'no-store'});if(!r.ok)throw Error('HTTP '+r.status);
+    const d=await r.json(),updated=document.querySelector('#updated');
+    const stale=Date.now()-Date.parse(d.generated_at)>45*60*1000;
+    updated.textContent=(stale?'Snapshot may be stale · ':'Updated ')+new Date(d.generated_at).toLocaleString();updated.className=stale?'stale':'';
+    const apps=document.querySelector('#apps');apps.replaceChildren();
+    for(const a of d.apps){const card=el('article',undefined,apps);el('h2',a.name+' · '+a.status,card);
+      const bars=el('div',undefined,card);bars.className='bars';
+      for(const b of a.bars||[]){const bar=el('span',undefined,bars);bar.className='bar '+(b.uptime==null?'':b.uptime===100?'ok':b.uptime===0?'bad':'partial');bar.title=new Date(b.ts*1000).toLocaleString()+': '+(b.uptime==null?'no data':b.uptime+'%');bar.setAttribute('aria-label',bar.title)}
+      for(const s of a.slos||[])el('p',s.slo+': '+(s.attainment==null?'unknown':(100*Number(s.attainment)).toFixed(2)+'%')+' / target '+(100*Number(s.target)).toFixed(2)+'%',card);
+    }
+    for(const [key,title] of [['incidents','Open incidents'],['maintenance','Active maintenance']]){
+      const box=document.querySelector('#'+key);box.replaceChildren();if(!(key in d))continue;
+      el('h2',title,box);if(d.available?.[key]===false){el('p','Data unavailable',box);continue}
+      if(!d[key].length)el('p','None',box);
+      for(const row of d[key])el('p',row.app+' · '+(row.message||row.reason||row.rule)+(row.ends_at?' · until '+row.ends_at:''),box);
+    }
+  }catch(e){document.querySelector('#updated').textContent='Status unavailable · '+e.message}
+}
+refresh();setInterval(refresh,60000);
+</script></body></html>

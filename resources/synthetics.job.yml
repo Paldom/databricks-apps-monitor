@@ -3,6 +3,7 @@ resources:
     synthetics:
       name: monitor-synthetics-browser
       description: >-
+        SUPERSEDED by .github/workflows/synthetics-external.yml (S11).
         Optional browser-mode smoke (Playwright) per app. HTTP journeys run inside the
         monitor app every 30 min (only the app SP's OAuth is accepted by app URLs).
         PAUSED by default: serverless lacks browser system deps — run manually, or use the

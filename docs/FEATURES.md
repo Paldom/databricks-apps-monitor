@@ -53,6 +53,13 @@ this is the exhaustive list.
 | Capacity probing                 | tagged step ramp on `/monitor/health`; missing route falls back to admin `capacity_path` or `/` | Ops tab, `app_config` |
 | Ask Genie                        | curated Genie space (18 gold objects) embedded in the app                                        | `#/ask`                                           |
 | AI/BI dashboard + watchdog       | versioned Lakeview dashboard; dead-man SQL alert                                                 | `dashboards/fleet.lvdash.json`                    |
+| Read-only MCP (S10)              | Official MCP Streamable HTTP at `/mcp`; seven existing-handler tools; Apps identity and per-caller rate limit | Existing fleet, overview, errors, traces, costs, alerts; optional `slo_specs` / `sli_5m` |
+| External vantage (S11)           | Scheduled OAuth M2M GitHub runner; HTTP and optional Playwright; named-parameter idempotent writes; two failed runs from each vantage before journey alerts | `synthetic_runs` (`workspace_id`, `vantage`, `run_id`, `failure_stage`), `ui_tests` volume |
+| Federation (S12)                | Feeder current overwrite + history/aggregate MERGE; hub discovery and UNION ALL; workspace filter; account billing priced once | `hub_catalog.af_<name>__<id>.{apps_current,apps_history,agg_app_daily,costs_daily,alert_events}`, local `v_fleet_*` |
+| Status page (S13)                | Authenticated `/status` / `/api/status`; hourly probe bars, incidents, optional SLOs/maintenance; opt-in allowlisted GitHub Pages snapshot | In-memory probes, `v_alerts_open`, optional `slo_specs`, `sli_5m`, `alert_mutes`; sanitized `status.json` |
+
+See [FEDERATION.md](FEDERATION.md) for deployment modes, grants, same-region
+constraints, external workflow setup, MCP authentication and public-snapshot policy.
 
 Phase 2 APIs live in `app/routes_ops.py`. Mute creation uses `POST /api/actions/mute`;
 `GET` lists unexpired windows, including scheduled ones. `DELETE /api/actions/mute/{id}`

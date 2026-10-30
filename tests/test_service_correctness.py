@@ -40,6 +40,7 @@ def service(monkeypatch):
     client.config.authenticate.return_value = {"Authorization": "Bearer test"}
     loaded = {}
     for name, directory in (
+        ("federation", "jobs"),
         ("schema_utils", "jobs"),
         ("alert_state", "jobs"),
         ("ops_tables", "jobs"),
@@ -56,14 +57,15 @@ def service(monkeypatch):
         ("gold_views", "jobs"),
         ("cost_rollup", "jobs"),
         ("quality_evals", "jobs"),
-        ("inventory_scan", "jobs"),
         ("housekeeping", "jobs"),
         ("mutes", "app"),
         ("auth", "app"),
+        ("reach_logic", "app"),
         ("alerts", "app"),
         ("queries", "app"),
         ("routes_ops", "app"),
         ("routes_product", "app"),
+        ("routes_reach", "app"),
         ("synthetic", "app"),
         ("mlflow_traces", "app"),
         ("main", "app"),
@@ -109,6 +111,34 @@ def test_restart_waits_for_consecutive_probe_evidence(service):
         a.evaluate(fleet, {"demo": [failed, (1, True, 200, 1)]}, lambda _: {})[0]["state"]
         == "resolved"
     )
+
+
+def test_journey_incident_requires_two_vantages_and_survives_missing_evidence(service):
+    a = service.alerts
+    fleet = {"demo": {"app_state": "RUNNING"}}
+    now = datetime.now(timezone.utc).timestamp()
+    rows = [
+        {
+            "app": "demo",
+            "journey": "checkout",
+            "vantage": v,
+            "run_id": str(i),
+            "run_ts": now - i,
+            "ok": False,
+        }
+        for v in ("internal", "external")
+        for i in (1, 2)
+    ]
+    assert a.evaluate(fleet, {}, lambda _: {}, vantage_rows=rows[:2]) == []
+    assert [e["state"] for e in a.evaluate(fleet, {}, lambda _: {}, vantage_rows=rows)] == [
+        "firing"
+    ]
+    assert a.evaluate(fleet, {}, lambda _: {}, vantage_rows=rows) == []
+    assert a.evaluate(fleet, {}, lambda _: {}, vantage_rows=None) == []
+    rows[2]["ok"] = True
+    assert [e["state"] for e in a.evaluate(fleet, {}, lambda _: {}, vantage_rows=rows)] == [
+        "resolved"
+    ]
 
 
 def test_rehydrate_precedes_scheduler(service, monkeypatch):

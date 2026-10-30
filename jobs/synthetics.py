@@ -24,6 +24,7 @@ import subprocess
 import sys
 import time
 from datetime import datetime, timezone
+from uuid import uuid4
 
 from databricks.sdk import WorkspaceClient
 from pyspark.sql import SparkSession
@@ -32,10 +33,24 @@ DDL = """
 CREATE TABLE IF NOT EXISTS {fq}.synthetic_runs (
   run_ts TIMESTAMP, app STRING, journey STRING, step INT, step_name STRING,
   ok BOOLEAN, status_code INT, latency_ms DOUBLE, within_budget BOOLEAN,
-  detail STRING, kind STRING, artifact STRING
-) COMMENT 'Synthetic results: kind=playwright from this job (artifact = UC volume folder); live HTTP journeys run in-app'"""
+  detail STRING, kind STRING, artifact STRING, workspace_id STRING,
+  vantage STRING, run_id STRING, failure_stage STRING
+) COMMENT 'Internal and external synthetic steps; run_id deduplicates runs, vantage identifies the failure domain'"""
 
 VOLUME_DDL = "CREATE VOLUME IF NOT EXISTS {fq}.ui_tests COMMENT 'Browser-test artifacts: result JSON + screenshot per app per run'"
+
+
+def ensure_tables(spark, fq, workspace_id):
+    from schema_utils import ensure_columns, workspace_column
+
+    spark.sql(DDL.format(fq=fq))
+    ensure_columns(
+        spark,
+        f"{fq}.synthetic_runs",
+        {"artifact": "STRING", "vantage": "STRING", "run_id": "STRING", "failure_stage": "STRING"},
+    )
+    workspace_column(spark, f"{fq}.synthetic_runs", workspace_id)
+    spark.sql(VOLUME_DDL.format(fq=fq))
 
 
 def browser_smoke(url: str, headers: dict) -> dict:
@@ -82,12 +97,7 @@ def main() -> None:
 
     w = WorkspaceClient()
     spark = SparkSession.builder.getOrCreate()
-    spark.sql(DDL.format(fq=fq))
-    spark.sql(VOLUME_DDL.format(fq=fq))
-    try:  # table may predate the artifact column
-        spark.sql(f"ALTER TABLE {fq}.synthetic_runs ADD COLUMNS (artifact STRING)")
-    except Exception:  # noqa: BLE001 — already there
-        pass
+    ensure_tables(spark, fq, str(w.get_workspace_id()))
     vol_root = f"/Volumes/{args.catalog}/{args.schema}/ui_tests"
 
     try:
@@ -137,6 +147,10 @@ def main() -> None:
                 "step_name": "browser page load",
                 "within_budget": bool(r.get("ok")),
                 "kind": "playwright",
+                "workspace_id": str(w.get_workspace_id()),
+                "vantage": "legacy-browser",
+                "run_id": str(uuid4()),
+                "failure_stage": None if r["ok"] else "http",
                 "artifact": artifact,
                 **r,
             }

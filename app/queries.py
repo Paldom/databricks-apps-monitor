@@ -561,3 +561,55 @@ TEMPLATE_DRIFT = f"""WITH daily AS (
     FROM {t("guardrail_samples")} WHERE workspace_id = :ws AND name = :app
       AND date >= :since::DATE AND template_hash IS NOT NULL GROUP BY 1, 2
   ) SELECT *, samples / daily_samples AS share FROM daily ORDER BY date DESC, share DESC"""
+# ---- reach (S10–S13)
+DEPLOYMENT_MODE = os.environ.get("DEPLOYMENT_MODE", "standalone")
+
+REACH_SLO = f"""
+  SELECT s.name, s.slo, s.sli, s.target, s.window_days,
+         sum(b.good) / nullif(sum(b.total), 0) AS attainment, sum(b.total) AS observations
+  FROM {t("slo_specs")} s LEFT JOIN {t("sli_5m")} b
+    ON s.name = b.name AND s.slo = b.slo AND s.workspace_id = b.workspace_id
+   AND b.bucket >= timestampadd(DAY, -s.window_days, current_timestamp())
+  WHERE (:app = '' OR s.name = :app)
+  GROUP BY s.name, s.slo, s.sli, s.target, s.window_days"""
+
+REACH_INCIDENTS = f"""
+  SELECT app, rule, severity, message, ts, muted, incident_id
+  FROM {t("v_alerts_open")} WHERE workspace_id = :ws ORDER BY ts DESC"""
+
+REACH_MAINTENANCE = f"""
+  SELECT app, rule, starts_at, ends_at, reason FROM {t("alert_mutes")}
+  WHERE workspace_id = :ws AND starts_at <= now() AND ends_at > now()"""
+
+REACH_SYNTHETICS = f"""
+  SELECT app, journey, vantage, run_id, run_ts, ok FROM {t("synthetic_runs")}
+  WHERE workspace_id = :ws AND run_ts >= now() - INTERVAL 2 HOURS
+    AND vantage IN ('internal', 'external') AND step = -1"""
+
+REACH_INSERT_SYNTHETIC = f"""
+  MERGE INTO {t("synthetic_runs")} t USING (
+    SELECT :ws AS workspace_id, :run_id AS run_id, :app AS app,
+           :journey AS journey, :step::int AS step, 'internal' AS vantage) s
+  ON t.workspace_id = s.workspace_id AND t.run_id = s.run_id AND t.app = s.app
+    AND t.journey = s.journey AND t.step = s.step AND t.vantage = s.vantage
+  WHEN NOT MATCHED THEN INSERT
+    (workspace_id, run_id, app, journey, step, vantage, run_ts, step_name, ok,
+     status_code, latency_ms, within_budget, detail, kind, failure_stage)
+  VALUES (s.workspace_id, s.run_id, s.app, s.journey, s.step, s.vantage, :ts::timestamp,
+    :step_name, :ok::boolean, :code::int, :ms::double, :budget::boolean, :detail,
+    'http', nullif(:failure_stage, ''))"""
+
+REACH_FLEET = f"""
+  WITH usage AS (
+    SELECT workspace_id, name, sum(requests) AS requests_7d, sum(errors) AS errors_7d
+    FROM {t("v_fleet_agg_app_daily")}
+    WHERE traffic_kind = 'real' AND date >= current_date() - 7 GROUP BY 1, 2),
+  costs AS (
+    SELECT workspace_id, name, sum(dbus) AS dbus_7d, sum(dbu_usd) AS usd_7d
+    FROM {t("v_fleet_costs_daily")} WHERE date >= current_date() - 7 GROUP BY 1, 2)
+  SELECT i.workspace_id, i.workspace_name, i.name, i.url, i.app_state, i.compute_state,
+         i.snapshot_ts, u.requests_7d, u.errors_7d, c.dbus_7d, c.usd_7d
+  FROM {t("v_fleet_apps_current")} i
+  LEFT JOIN usage u ON i.workspace_id = u.workspace_id AND i.name = u.name
+  LEFT JOIN costs c ON i.workspace_id = c.workspace_id AND i.name = c.name
+  WHERE (:ws = '' OR i.workspace_id = :ws) ORDER BY i.workspace_name, i.name"""

@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 
 import httpx
 from mutes import is_muted
+from reach_logic import vantage_decisions
 
 log = logging.getLogger("monitor.alerts")
 
@@ -34,7 +35,14 @@ def rehydrate(rows: list[dict]) -> None:
     _active.update({f"{r['rule']}:{r['app']}": {**r, "since": str(r["since"])} for r in rows})
 
 
-def evaluate(fleet: dict, probes: dict, summary_fn, synth: dict | None = None) -> list[dict]:
+def evaluate(
+    fleet: dict,
+    probes: dict,
+    summary_fn,
+    synth: dict | None = None,
+    vantage_rows: list | None = None,
+    expected_journeys: tuple = (),
+) -> list[dict]:
     """Return state-transition events; keeps the active-alert set internally."""
     now = datetime.now(timezone.utc).isoformat()
     desired: dict[str, dict] = {}
@@ -88,22 +96,27 @@ def evaluate(fleet: dict, probes: dict, summary_fn, synth: dict | None = None) -
                 s["p95_ms"],
             )
 
-    for name, jr in (synth or {}).items():
-        if not jr.get("ok"):
-            failed = next((s for s in jr["steps"] if not s["ok"]), {})
+    decisions = vantage_decisions(
+        vantage_rows or [], datetime.now(timezone.utc).timestamp(), expected=expected_journeys
+    )
+    for name, failed in decisions.items():
+        if failed:
             want(
                 "journey_failed",
                 name,
                 "high",
-                f"synthetic journey '{jr['journey']}' failed at {failed.get('name')}: "
-                f"{failed.get('detail') or failed.get('code')}",
-                failed.get("code"),
+                "Two consecutive journey failures from both internal and external vantages",
+                4.0,
             )
 
     events = []
     # A restarted process needs two probes before it can clear a consecutive-failure alert.
     for key, a in _active.items():
-        if a["app"] not in fleet or (a["rule"] == "app_down" and len(probes.get(a["app"], ())) < 2):
+        if (
+            a["app"] not in fleet
+            or (a["rule"] == "app_down" and len(probes.get(a["app"], ())) < 2)
+            or (a["rule"] == "journey_failed" and a["app"] not in decisions)
+        ):
             desired.setdefault(key, a)
     for key, a in desired.items():
         if key not in _active:

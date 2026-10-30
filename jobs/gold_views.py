@@ -580,6 +580,7 @@ def check_token_budgets(spark, fq: str, workspace_id: str, cat: str, sch: str) -
 
 
 def main() -> None:
+    from federation import arguments, destination, hub_views, publish
     from product_sql import CONFIG_COLUMNS, FUNNEL_DDL, MODEL_PRICES_DDL, product_views_sql
     from schema_utils import ensure_columns, workspace_column
 
@@ -588,12 +589,17 @@ def main() -> None:
     p.add_argument("--schema", required=True)
     p.add_argument("--monitor-app", default="apps-monitor")
     p.add_argument("--jobs-dir", default="")
+    arguments(p)
     args = p.parse_args()
     fq = f"`{args.catalog}`.`{args.schema}`"
 
     w = WorkspaceClient()
     spark = SparkSession.builder.getOrCreate()
     spark.conf.set("spark.sql.session.timeZone", "UTC")
+    destination(args, w)
+    if args.deployment_mode == "hub":
+        hub_views(spark, args)
+        return
     ts = datetime.now(timezone.utc)
     apps = list(w.apps.list())
 
@@ -670,6 +676,7 @@ def main() -> None:
         check_budgets(spark, fq)
     except Exception as e:  # noqa: BLE001
         print(f"budget check failed: {e}")
+    publish(spark, args, w, ("agg_app_daily", "alert_events"))
     print("gold views & governance done")
 
 

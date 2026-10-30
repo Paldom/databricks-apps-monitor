@@ -19,6 +19,7 @@ from collections import deque
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
+from uuid import uuid4
 
 import httpx
 import routes_product
@@ -29,6 +30,7 @@ from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from opentelemetry import metrics, trace
 from routes_ops import router as ops_router
+from routes_reach import build_router
 from synthetic import capacity_path, capacity_url, synthetic_headers
 
 import alerts
@@ -186,11 +188,18 @@ synth: dict[str, dict] = {}  # app name -> latest journey result
 _last_synth = 0.0
 
 
+def configured_journeys() -> list[dict]:
+    auto = JOURNEYS.get("auto_journey")
+    journeys = [j for j in JOURNEYS.get("journeys", []) if j.get("kind") != "playwright"]
+    configured = {j["app"] for j in journeys}
+    if auto:
+        journeys += [{**auto, "app": name} for name in fleet if name not in configured]
+    return journeys
+
+
 async def run_journeys() -> None:
     global _last_synth
     defaults = JOURNEYS.get("defaults", {})
-    auto = JOURNEYS.get("auto_journey")
-    by_app = {j["app"]: j for j in JOURNEYS.get("journeys", [])}
     try:
         headers = await asyncio.to_thread(w.config.authenticate)
     except Exception:
@@ -200,10 +209,11 @@ async def run_journeys() -> None:
         timeout=defaults.get("timeout_s", 20), follow_redirects=False
     ) as client:
         headers = synthetic_headers(headers, "journey")
-        for name, info in list(fleet.items()):
+        for jn in configured_journeys():
+            name = jn["app"]
+            info = fleet.get(name, {})
             url = info.get("url")
-            jn = by_app.get(name) or ({**auto, "app": name} if auto else None)
-            if not url or not jn:
+            if not url:
                 continue
             budget = jn.get("latency_budget_ms", defaults.get("latency_budget_ms", 3000))
             steps = []
@@ -259,6 +269,51 @@ async def run_journeys() -> None:
                 "budget_ms": budget,
                 "within_budget": all(s["ms"] <= budget for s in steps),
             }
+            run_id = str(uuid4())
+            try:
+                ws = str(await asyncio.to_thread(_workspace_id))
+                failed = next((s for s in steps if not s["ok"]), {})
+                # A completion row is written last; partial step uploads are not evidence.
+                completed = {
+                    "step": -1,
+                    "name": "journey complete",
+                    "ok": ok_all,
+                    "code": failed.get("code", 200),
+                    "ms": sum(s["ms"] for s in steps),
+                    "detail": failed.get("detail", ""),
+                }
+                for step in [*steps, completed]:
+                    stage = (
+                        ""
+                        if step["ok"]
+                        else "auth"
+                        if step["code"] in (401, 403, 302)
+                        else "http"
+                        if step["code"] < 0 or step["code"] >= 400
+                        else "assertion"
+                    )
+                    await q.run_dml(
+                        q.REACH_INSERT_SYNTHETIC,
+                        ws=ws,
+                        run_id=run_id,
+                        app=name,
+                        journey=jn["name"],
+                        step=step["step"],
+                        ts=datetime.now(timezone.utc).isoformat(),
+                        step_name=step["name"],
+                        ok=str(step["ok"]).lower(),
+                        code=step["code"],
+                        ms=step["ms"],
+                        budget=str(
+                            synth[name]["within_budget"]
+                            if step["step"] == -1
+                            else step["ms"] <= budget
+                        ).lower(),
+                        detail=step["detail"],
+                        failure_stage=stage,
+                    )
+            except Exception:  # noqa: BLE001 — probing must survive a warehouse outage
+                log.warning("internal journey persistence unavailable", exc_info=True)
     _last_synth = time.time()
     log.info(
         "synthetics: %d journeys, %d failing", len(synth), sum(not s["ok"] for s in synth.values())
@@ -292,7 +347,14 @@ async def scheduler() -> None:
             await probe_round()
             if time.time() - _last_synth > SYNTH_INTERVAL:
                 await run_journeys()
-            events = alerts.evaluate(fleet, probes, _summary, synth)
+            try:
+                vantage_rows = await q.run(
+                    q.REACH_SYNTHETICS, ttl=60, ws=str(await asyncio.to_thread(_workspace_id))
+                )
+            except Exception:  # noqa: BLE001 — missing evidence never clears an incident
+                vantage_rows = None
+            expected = tuple((j["app"], j["name"]) for j in configured_journeys())
+            events = alerts.evaluate(fleet, probes, _summary, synth, vantage_rows, expected)
             if events:
                 await asyncio.to_thread(alerts.notify_webhook, events)
                 task = asyncio.create_task(_persist_alerts(events))
@@ -1021,6 +1083,8 @@ if (STATIC_DIR / "ui").is_dir():
 
     app.mount("/ui", StaticFiles(directory=str(STATIC_DIR / "ui"), html=True), name="ui")
 
+
+app.include_router(build_router(globals()))
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("DATABRICKS_APP_PORT", 8000)))

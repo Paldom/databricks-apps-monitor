@@ -29,6 +29,10 @@ resources:
               - "--catalog=${var.catalog}"
               - "--schema=${var.schema}"
               - "--monitor-app=apps-monitor"
+              - "--external-sp=${var.external_sp}"
+              - "--deployment-mode=${var.deployment_mode}"
+              - "--hub-catalog=${var.hub_catalog}"
+              - "--workspace-name=${var.workspace_name}"
               - "--jobs-dir=${workspace.file_path}/jobs"
         - task_key: source_scan
           depends_on:
@@ -47,6 +51,9 @@ resources:
           spark_python_task:
             python_file: ../jobs/gold_views.py
             parameters:
+              - "--deployment-mode=${var.deployment_mode}"
+              - "--hub-catalog=${var.hub_catalog}"
+              - "--workspace-name=${var.workspace_name}"
               - "--catalog=${var.catalog}"
               - "--schema=${var.schema}"
               - "--monitor-app=apps-monitor"

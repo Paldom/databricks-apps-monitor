@@ -21,6 +21,18 @@ variables:
   monitor_cost_pct:
     description: Alert when daily monitor known cost exceeds this percentage of fleet cost
     default: 10
+  deployment_mode:
+    description: standalone (default), feeder (publish aggregates), or hub (union feeder views)
+    default: standalone
+  hub_catalog:
+    description: Shared UC catalog for feeder schemas; required in feeder/hub mode
+    default: unset
+  workspace_name:
+    description: Stable feeder schema label; empty derives it from the workspace host
+    default: ""
+  external_sp:
+    description: Optional external synthetic service principal application ID for CAN_USE grants
+    default: unset
   catalog:
     description: Unity Catalog catalog holding the monitoring schema
     default: main

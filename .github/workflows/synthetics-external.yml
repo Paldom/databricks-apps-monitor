@@ -1,0 +1,101 @@
+name: External synthetics
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+    inputs:
+      publish_status:
+        description: Publish the allowlisted status snapshot to GitHub Pages
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: external-synthetics
+  cancel-in-progress: false
+
+jobs:
+  checks:
+    if: vars.EXTERNAL_SYNTHETICS_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 14
+    outputs:
+      public_ready: ${{ steps.snapshot.outputs.ready }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          python-version: '3.12'
+      - name: Install optional browser
+        if: vars.SYNTHETICS_PLAYWRIGHT == 'true'
+        run: uv run --no-project --with playwright playwright install --with-deps chromium
+      - name: Check and persist
+        env:
+          DATABRICKS_HOST: ${{ secrets.SYNTHETICS_HOST }}
+          DATABRICKS_CLIENT_ID: ${{ secrets.SYNTHETICS_CLIENT_ID }}
+          DATABRICKS_CLIENT_SECRET: ${{ secrets.SYNTHETICS_CLIENT_SECRET }}
+          DATABRICKS_WAREHOUSE_ID: ${{ vars.SYNTHETICS_WAREHOUSE_ID }}
+          DATABRICKS_WORKSPACE_ID: ${{ vars.SYNTHETICS_WORKSPACE_ID }}
+          MONITOR_CATALOG: ${{ vars.MONITOR_CATALOG }}
+          MONITOR_SCHEMA: ${{ vars.MONITOR_SCHEMA }}
+          MONITOR_URL: ${{ secrets.MONITOR_URL }}
+          SYNTHETIC_ARTIFACT_VOLUME: ${{ vars.SYNTHETIC_ARTIFACT_VOLUME }}
+          PUBLIC_STATUS_APPS: ${{ vars.PUBLIC_STATUS_APPS }}
+          PUBLISH_STATUS: ${{ inputs.publish_status || vars.PUBLISH_STATUS == 'true' }}
+          USE_BROWSER: ${{ vars.SYNTHETICS_PLAYWRIGHT }}
+        shell: bash
+        run: |
+          flags=()
+          runtime=()
+          if [[ "$PUBLISH_STATUS" == "true" ]]; then flags+=(--status); fi
+          if [[ "$USE_BROWSER" == "true" ]]; then
+            flags+=(--playwright)
+            runtime+=(--with playwright)
+          fi
+          uv run --no-project "${runtime[@]}" scripts/external_synthetics.py "${flags[@]}"
+      - name: Snapshot availability
+        id: snapshot
+        if: always()
+        run: |
+          if [[ -f external-results/public/status.json ]]; then
+            echo 'ready=true' >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: synthetic-results
+          path: external-results/*.json
+          retention-days: 7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always() && steps.snapshot.outputs.ready == 'true'
+        with:
+          name: public-status
+          path: external-results/public
+          retention-days: 1
+
+  publish:
+    needs: checks
+    if: always() && needs.checks.outputs.public_ready == 'true' && (inputs.publish_status || vars.PUBLISH_STATUS == 'true')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: public-status
+          path: public
+      - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3.0.1
+        with:
+          path: public
+      - id: deployment
+        uses: actions/deploy-pages@d6db90192c5cc24ba67e9b95e98e68244b0d0d5d # v4.0.5

@@ -74,7 +74,13 @@ def app_row(a, ts: datetime, workspace_id: str) -> dict:
 
 
 def grant_monitor_access(
-    w: WorkspaceClient, spark, apps, monitor_name: str, catalog: str, schema: str
+    w: WorkspaceClient,
+    spark,
+    apps,
+    monitor_name: str,
+    catalog: str,
+    schema: str,
+    external_sp: str = "",
 ) -> None:
     monitor = next((a for a in apps if a.name == monitor_name), None)
     if not monitor or not monitor.service_principal_client_id:
@@ -95,11 +101,34 @@ def grant_monitor_access(
         f"GRANT MODIFY ON TABLE `{catalog}`.`{schema}`.`monitor_audit` TO `{sp}`",
         f"GRANT MODIFY ON TABLE `{catalog}`.`{schema}`.`model_prices` TO `{sp}`",
         f"GRANT MODIFY ON TABLE `{catalog}`.`{schema}`.`funnel_specs` TO `{sp}`",
+        f"GRANT MODIFY ON TABLE `{catalog}`.`{schema}`.`synthetic_runs` TO `{sp}`",
     ):
         try:
             spark.sql(stmt)
         except Exception as e:  # noqa: BLE001 — grant failures must not kill the snapshot
             print(f"grant failed ({stmt}): {e}")
+
+    if external_sp and external_sp != "unset":
+        from federation import identifier
+
+        principal = identifier(external_sp)
+        for stmt in (
+            f"GRANT USE CATALOG ON CATALOG `{catalog}` TO {principal}",
+            f"GRANT USE SCHEMA ON SCHEMA `{catalog}`.`{schema}` TO {principal}",
+            f"GRANT SELECT, MODIFY ON TABLE `{catalog}`.`{schema}`.`synthetic_runs` TO {principal}",
+            f"GRANT READ VOLUME, WRITE VOLUME ON VOLUME `{catalog}`.`{schema}`.`ui_tests` TO {principal}",
+        ):
+            spark.sql(stmt)
+        for a in apps:
+            w.apps.update_permissions(
+                app_name=a.name,
+                access_control_list=[
+                    AppAccessControlRequest(
+                        service_principal_name=external_sp,
+                        permission_level=AppPermissionLevel.CAN_USE,
+                    )
+                ],
+            )
 
     for a in apps:
         if a.name == monitor_name:
@@ -161,9 +190,11 @@ def grant_monitor_access(
 
 
 def main() -> None:
+    from federation import arguments, destination, publish
     from ops_tables import ensure_ops_tables
     from product_sql import FUNNEL_DDL, MODEL_PRICES_DDL
     from schema_utils import ensure_columns, workspace_column
+    from synthetics import ensure_tables
     from telemetry_health import sampler_ratio
 
     p = argparse.ArgumentParser()
@@ -171,12 +202,16 @@ def main() -> None:
     p.add_argument("--schema", required=True)
     p.add_argument("--jobs-dir", default="")
     p.add_argument("--monitor-app", default="apps-monitor")
+    p.add_argument("--external-sp", default="")
+    arguments(p)
     args = p.parse_args()
     fq = f"`{args.catalog}`.`{args.schema}`"
 
     w = WorkspaceClient()
     spark = SparkSession.builder.getOrCreate()
     ts = datetime.now(timezone.utc)
+    args.snapshot_ts = ts
+    destination(args, w)
 
     apps = list(w.apps.list())
     print(f"{len(apps)} apps found")
@@ -191,6 +226,7 @@ def main() -> None:
     ensure_columns(spark, f"{fq}.alert_events", {"muted": "BOOLEAN", "incident_id": "STRING"})
     workspace_column(spark, f"{fq}.alert_events", str(w.get_workspace_id()))
     ws = str(w.get_workspace_id())
+    ensure_tables(spark, fq, ws)
     workspace_column(spark, f"{fq}.apps_inventory", ws)
     ensure_columns(spark, f"{fq}.apps_inventory", {"sampler_ratio": "DOUBLE"})
     rows = [app_row(a, ts, ws) for a in apps]
@@ -215,7 +251,10 @@ def main() -> None:
             ) WHERE rn = 1"""
     )
 
-    grant_monitor_access(w, spark, apps, args.monitor_app, args.catalog, args.schema)
+    grant_monitor_access(
+        w, spark, apps, args.monitor_app, args.catalog, args.schema, args.external_sp
+    )
+    publish(spark, args, w, ("apps_inventory",))
     print("inventory scan done")
 
 

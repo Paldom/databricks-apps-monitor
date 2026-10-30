@@ -26,6 +26,9 @@ resources:
           spark_python_task:
             python_file: ../jobs/cost_rollup.py
             parameters:
+              - "--deployment-mode=${var.deployment_mode}"
+              - "--hub-catalog=${var.hub_catalog}"
+              - "--workspace-name=${var.workspace_name}"
               - "--catalog=${var.catalog}"
               - "--schema=${var.schema}"
               - "--jobs-dir=${workspace.file_path}/jobs"

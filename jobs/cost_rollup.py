@@ -96,6 +96,7 @@ def idle_cost_sql(fq: str, days: int) -> str:
 
 
 def main() -> None:
+    from federation import arguments, destination, publish
     from product_sql import MODEL_PRICES_DDL
     from schema_utils import ensure_columns, workspace_column
 
@@ -104,6 +105,7 @@ def main() -> None:
     p.add_argument("--schema", required=True)
     p.add_argument("--days", type=int, default=30)
     p.add_argument("--jobs-dir", default="", help="workspace path of the jobs dir (import path)")
+    arguments(p)
     args = p.parse_args()
     fq = f"`{args.catalog}`.`{args.schema}`"
 
@@ -112,24 +114,38 @@ def main() -> None:
     spark.sql(DDL.format(fq=fq))
     from databricks.sdk import WorkspaceClient
 
-    ws_id = str(int(WorkspaceClient().get_workspace_id()))
+    client = WorkspaceClient()
+    destination(args, client)
+    if args.deployment_mode == "hub":
+        return  # Account-wide pricing is exposed by the hub gold views.
+    ws_id = str(int(client.get_workspace_id()))
     print(f"workspace_id={ws_id}, window={args.days}d")
     ensure_columns(spark, f"{fq}.costs_daily", {"ai_tokens_gateway": "LONG", "idle_usd": "DOUBLE"})
     workspace_column(spark, f"{fq}.costs_daily", ws_id)
     spark.sql(AI_DDL.format(fq=fq))
     spark.sql(MODEL_PRICES_DDL.format(fq=fq))
 
+    price = (
+        "CAST(NULL AS DOUBLE)"
+        if args.deployment_mode == "feeder"
+        else "sum(u.usage_quantity * coalesce(p.pricing.effective_list.default, p.pricing.default))"
+    )
+    price_join = (
+        ""
+        if args.deployment_mode == "feeder"
+        else """LEFT JOIN system.billing.list_prices p
+        ON u.sku_name = p.sku_name AND u.cloud = p.cloud AND p.currency_code = 'USD'
+       AND u.usage_end_time >= p.price_start_time
+       AND (p.price_end_time IS NULL OR u.usage_end_time < p.price_end_time)"""
+    )
     spark.sql(f"""
       CREATE OR REPLACE TEMP VIEW app_dbu AS
       SELECT u.usage_date AS date,
              u.usage_metadata.app_name AS name,
              sum(u.usage_quantity) AS dbus,
-             sum(u.usage_quantity * coalesce(p.pricing.effective_list.default, p.pricing.default)) AS dbu_usd
+             {price} AS dbu_usd
       FROM system.billing.usage u
-      LEFT JOIN system.billing.list_prices p
-        ON u.sku_name = p.sku_name AND u.cloud = p.cloud AND p.currency_code = 'USD'
-       AND u.usage_end_time >= p.price_start_time
-       AND (p.price_end_time IS NULL OR u.usage_end_time < p.price_end_time)
+      {price_join}
       WHERE u.billing_origin_product = 'APPS'
         AND u.workspace_id = '{ws_id}'
         AND u.usage_date >= current_date() - {args.days}
@@ -225,6 +241,7 @@ def main() -> None:
                sum(CASE WHEN date = current_date() THEN ai_input_tokens + ai_output_tokens END) AS tokens_today,
                sum(CASE WHEN date >= current_date() - 7 THEN ai_input_tokens + ai_output_tokens END) AS tokens_7d
         FROM {fq}.costs_daily""")
+    publish(spark, args, client, ("costs_daily",))
     print("done")
 
 
