@@ -19,7 +19,7 @@ COPIES = [
 @pytest.mark.parametrize("copy", COPIES, ids=lambda p: str(p.relative_to(ROOT)))
 def test_copy_matches_canonical(copy: Path) -> None:
     assert copy.exists(), f"expected middleware copy at {copy}"
-    assert copy.read_text() == CANONICAL.read_text(), (
+    assert copy.read_bytes() == CANONICAL.read_bytes(), (
         f"{copy} drifted from src/monitor_middleware/__init__.py — "
         "re-copy it (example-apps/sync-demos.sh syncs the demo fleet)"
     )

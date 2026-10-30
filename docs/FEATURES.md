@@ -27,7 +27,15 @@ this is the exhaustive list.
 | Security & compliance            | deny-list policy, freshness, permission drift, audit, compliance export                          | `policy.json`, `app_permissions`, `monitor_audit` |
 | Provisioning                     | one-click tagged app from template, telemetry pre-wired                                          | `monitor-provision-app`                           |
 | Runtime quality evals            | daily LLM judge on sampled production traces + regression alerts                                 | `monitor_quality`                                 |
-| User feedback                    | `POST /monitor/feedback` ★ ratings through the native pipeline                                   | `v_feedback`                                      |
+| User feedback                    | `POST /monitor/feedback` ★ ratings through the native pipeline; comments scrubbed, bodies over 4 KB accepted as empty `{ok:true}` | `v_feedback`                                      |
+| Privacy-safe capture             | creation-time and late span redaction, formatted log/extra scrubbing, HMAC user hash and validated IDs | `otel_spans`, `otel_logs`                         |
+| Exception fingerprints           | `exception.fingerprint` on the request span, or `monitor.error_summary` when it was not recorded | `otel_spans`, `otel_logs`                         |
+| Health contract                  | `GET /monitor/health`: concurrent bounded workers, 30s cache; startup package inventory and cold-start span | app process, `otel_logs`, `otel_spans`              |
+| Business events                  | `track`, `set_step`, `POST /monitor/event`                                                       | `otel_logs`, `otel_spans`                          |
+| LLM usage helper                 | `llm_call` and histogram `gen_ai.client.token.usage`                                             | `otel_spans`, `otel_metrics`                      |
+| SQL dependency spans             | `trace_sql`: warehouse/Lakebase IDs and row counts; no SQL text or automatic exception payloads   | `otel_spans`                                      |
+| Browser RUM                      | opt-in errors, views and vital estimates; same-origin, 8 KB streaming cap, 10/min session bucket; fetch request correlation | `otel_logs`                                       |
+| Token budget                     | SDK `llm_call` checks `/api/policy/{app}`: 60s cache, 2s timeout, fail-open refresh, `BudgetExceeded` on block | monitor policy endpoint (service side separate)    |
 | LLM error taxonomy & agent watch | rate-limit/policy/timeout/schema classes; spans-per-trace trend                                  | GenAI tab                                         |
 | Capacity probing                 | tagged step ramp on `/monitor/health`; missing route falls back to admin `capacity_path` or `/` | Ops tab, `app_config` |
 | Ask Genie                        | curated Genie space (18 gold objects) embedded in the app                                        | `#/ask`                                           |

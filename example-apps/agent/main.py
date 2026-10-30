@@ -8,8 +8,8 @@ Every request carries one correlation context end to end:
   - envelope middleware stamps client_request_id / session / user on the OTel server span
   - the same client_request_id + session go onto the MLflow trace (update_current_trace)
   - the same ids ride the AI-Gateway request tags header on every LLM call
-  - token usage is recorded on the OTel server span (gen_ai.*) → cost rollup, and lands
-    on MLflow LLM spans via mlflow.openai.autolog()
+  - llm_call records one billable span and token histogram per provider call;
+    MLflow LLM spans remain available through mlflow.openai.autolog()
 """
 
 from __future__ import annotations
@@ -27,9 +27,8 @@ import uvicorn
 from databricks.sdk import WorkspaceClient
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
-from opentelemetry import metrics, trace
 
-from monitor_middleware import install
+from monitor_middleware import install, llm_call, set_step, track
 
 logging.basicConfig(level="INFO")
 log = logging.getLogger("agent")
@@ -48,9 +47,6 @@ mlflow.set_tracking_uri("databricks")
 if os.environ.get("MLFLOW_EXPERIMENT_ID"):
     mlflow.set_experiment(experiment_id=os.environ["MLFLOW_EXPERIMENT_ID"])
 mlflow.openai.autolog()
-
-meter = metrics.get_meter("monitor")
-token_counter = meter.create_counter("monitor.llm.tokens", description="LLM tokens by direction")
 
 KNOWLEDGE = {
     "delta": "Delta Lake is an open table format adding ACID transactions, time travel and schema enforcement to data lakes.",
@@ -92,24 +88,21 @@ class ReqCtx:
 
 
 def _llm(ctx: ReqCtx, messages: list[dict], max_tokens: int = 200) -> str:
-    resp = oai.chat.completions.create(
-        model=ENDPOINT,
-        messages=messages,
-        max_tokens=max_tokens,
-        temperature=0.3,
-        extra_headers={"Databricks-Ai-Gateway-Request-Tags": ctx.gateway_tags()},
-    )
-    u = resp.usage
-    ctx.in_tokens += getattr(u, "prompt_tokens", 0) or 0
-    ctx.out_tokens += getattr(u, "completion_tokens", 0) or 0
-    token_counter.add(
-        getattr(u, "prompt_tokens", 0) or 0, {"llm.direction": "input", "llm.model": ENDPOINT}
-    )
-    token_counter.add(
-        getattr(u, "completion_tokens", 0) or 0, {"llm.direction": "output", "llm.model": ENDPOINT}
-    )
-    content = resp.choices[0].message.content
-    return content if isinstance(content, str) else str(content)
+    with llm_call(ENDPOINT) as usage:
+        resp = oai.chat.completions.create(
+            model=ENDPOINT,
+            messages=messages,
+            max_tokens=max_tokens,
+            temperature=0.3,
+            extra_headers={"Databricks-Ai-Gateway-Request-Tags": ctx.gateway_tags()},
+        )
+        inp = getattr(resp.usage, "prompt_tokens", 0) or 0
+        out = getattr(resp.usage, "completion_tokens", 0) or 0
+        usage.set(input_tokens=inp, output_tokens=out)
+        ctx.in_tokens += inp
+        ctx.out_tokens += out
+        content = resp.choices[0].message.content
+        return content if isinstance(content, str) else str(content)
 
 
 @mlflow.trace(span_type="TOOL")
@@ -183,12 +176,8 @@ def ops_agent(ctx: ReqCtx) -> dict:
     return {"agent": "ops", "summary": summary, "fleet": fleet}
 
 
-def _run_agent(fn, ctx: ReqCtx, server_span, *args) -> dict:
+def _run_agent(fn, ctx: ReqCtx, *args) -> dict:
     result = fn(ctx, *args)
-    # tokens onto the OTel server span → otel_spans → cost rollup correlation
-    server_span.set_attribute("gen_ai.request.model", ENDPOINT)
-    server_span.set_attribute("gen_ai.usage.input_tokens", ctx.in_tokens)
-    server_span.set_attribute("gen_ai.usage.output_tokens", ctx.out_tokens)
     return {
         **result,
         "usage": {"input_tokens": ctx.in_tokens, "output_tokens": ctx.out_tokens},
@@ -278,13 +267,19 @@ async def home() -> HTMLResponse:
 @app.get("/api/ask")
 async def ask(q: str, request: Request) -> dict:
     ctx = _ctx(request)
-    return await asyncio.to_thread(_run_agent, qa_agent, ctx, trace.get_current_span(), q[:500])
+    set_step("ask")
+    result = await asyncio.to_thread(_run_agent, qa_agent, ctx, q[:500])
+    track("answer_generated", request, agent="qa")
+    return result
 
 
 @app.get("/api/ops/brief")
 async def ops_brief(request: Request) -> dict:
     ctx = _ctx(request)
-    return await asyncio.to_thread(_run_agent, ops_agent, ctx, trace.get_current_span())
+    set_step("ops_brief")
+    result = await asyncio.to_thread(_run_agent, ops_agent, ctx)
+    track("brief_generated", request, agent="ops")
+    return result
 
 
 if __name__ == "__main__":

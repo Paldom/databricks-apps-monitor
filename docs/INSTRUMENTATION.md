@@ -13,6 +13,115 @@ and every level is optional:
 
 The five `example-apps/` are living references: `healthy/` is L2, `agent/` is L3.
 
+## SDK v2 contract
+
+`install(app)` with no arguments is still the v1 envelope. Redaction is on by default.
+Copy [`sdk/monitor_middleware.py`](../sdk/monitor_middleware.py), or pip-install the wheel —
+only the wheel registers the sampler entry point.
+
+| API | What it does |
+| --- | --- |
+| `install(app, *, redact=True, health_checks=None, rum=False, rum_sample=0.1)` | Envelope, log guard, optional span redaction, `GET /monitor/health`, feedback, `POST /monitor/event`, optional RUM |
+| `llm_call(model, *, streaming=False, operation="chat")` | One provider call. `usage.set` stores the **last** token counts; `usage.first_token()` stores time to first token |
+| `track(name, request=None, **props)` | Business event on logger `monitor.events` (non-scalars dropped, 20 props max) |
+| `set_step(name)` | Overrides `journey.step` for this request; otherwise the route template is used |
+| `trace_sql(warehouse_id, *, system="databricks_sql")` | Dependency span. Set `res.statement_id` and `res.rows`. SQL text is never an attribute |
+| `warehouse_ready(warehouse_id)` | Health check: control-plane warehouse GET. `RUNNING`, `STOPPED`, `STARTING`, and `STOPPING` are healthy |
+| `serving_ready(name)` | Health check: control-plane endpoint GET; `state.ready == READY`, including scale-to-zero. A failed update can leave an existing endpoint ready. |
+| `BudgetExceeded` | Raised by `llm_call` when policy returns `{"throttle": "block"}` |
+
+### Environment
+
+| Variable | Role |
+| --- | --- |
+| `MONITOR_HASH_KEY` | HMAC-SHA256 key for `user.id_hash`, truncated to 16 hex chars. Unset → plain SHA-256[:16] (v1-compatible). |
+| `MONITOR_TEAM`, `MONITOR_COST_CENTER` | Copied onto the startup log only. |
+| `OTEL_RESOURCE_ATTRIBUTES` | Native way to put team / cost center on **every** signal. The middleware does not read them. |
+| `MONITOR_URL` | Base URL for the token-budget policy. |
+| `DATABRICKS_TOKEN` | Optional bearer for that policy GET. |
+| `MONITOR_REDACT_EXTRA` | Comma-separated span attribute keys to drop, besides the built-ins. |
+| `APP_VERSION` | Stamped on spans and the health body. |
+| `OTEL_TRACES_SAMPLER` | `monitor_parentbased` (wheel only). `OTEL_TRACES_SAMPLER_ARG` is the ratio, default 1.0. |
+
+### Redaction
+
+On by default. `redact=False` skips installing the span guard and enables only log
+truncation in a fresh process. Once enabled, privacy guards remain enabled for the
+process; installing another app with `redact=False` cannot disable them. SDK event,
+feedback and RUM payloads are always scrubbed.
+
+**Does:** an `on_start` processor removes query strings, fragments and URL credentials
+from `url.full` / `http.url` / `http.target`, replaces `url.query`, and replaces
+`process.command_line`, `process.command_args`, `db.statement` and `db.query.text`.
+It wraps each span's public mutation methods so late attributes, exception events,
+names and status descriptions are scrubbed before exporters see them. The log filter
+runs **after** formatting, covers exception text and structured extras, and masks
+emails, bearer tokens, `dapi` PATs, JWTs, and
+`token` / `access_token` / `refresh_token` / `password` / `secret` / `code` query
+parameters. Feedback comments and decoded event / RUM bodies are scrubbed the same
+way, including JSON Unicode escapes. Request IDs and session cookies must match
+`[A-Za-z0-9._:-]{1,64}`; invalid values are replaced.
+
+**Does not:** raw `print()` and other stdout (the platform captures those outside the
+logging filter), handlers added after `install()` or handlers that bypass the root
+logger, the platform's own logs, span links, or resource attributes already sealed on the
+`TracerProvider` — so `process.command_line` set as a **resource** attribute is not
+rewritten. The MLflow experiment copy of a trace is also outside this process. MLflow
+dual export that goes through this same `TracerProvider` **is** covered by the span
+processor (tested with a shared-provider MLflow-style tracer, not a live MLflow export).
+Call `install()` after configuring the provider and root logging handlers. Span
+redaction does not apply to a separate provider or an already-started span. The SDK
+works with only `opentelemetry-api`; no provider or exporter is installed for you.
+`monitor_parentbased` only works for a pip-installed wheel, because
+`opentelemetry-instrument` builds the provider before app code runs. It always records
+`monitor.error_summary` even when the ratio drops other root spans. This summary is
+sampled explicitly; a head sampler cannot revive the original dropped request.
+
+### Health, GenAI, journeys, RUM, budget
+
+`GET /monitor/health` — not `/healthz`, which the Apps proxy intercepts. Body
+`{status, version, boot_id, uptime_s, checks}` is **200** when every check passed and
+**503** otherwise. Synchronous checks run concurrently on daemon workers with a 2s
+response deadline and a 30s cache, without blocking the request loop. A timed-out
+check retains its worker until it returns; subsequent probes do not spawn duplicates.
+`warehouse_ready` / `serving_ready` call control-plane GETs only.
+
+`llm_call` sets `gen_ai.request.model`, `gen_ai.operation.name`, `monitor.llm.billable`,
+`monitor.llm.streaming`, token attributes from the **last** `set()`, `monitor.llm.ttft_ms`
+after `first_token()`, and `error.type` in
+`{rate_limit, timeout, policy, schema, server, <exception class name>}`. Histogram
+`gen_ai.client.token.usage` is a metric, so trace sampling does not drop it.
+
+`traffic.kind` is `x-monitor-synthetic` when it is `probe`, `journey`, or `capacity`;
+otherwise `real`. `set_step("submit")` overrides `journey.step`; if you never call it,
+the route template is used.
+
+`install(rum=True)` serves `GET /monitor/rum.js` and `POST /monitor/rum` (same-origin,
+8 KB, a token bucket of 10 posts replenished at 10/min per session, logger `monitor.rum`):
+
+```html
+<script src="/monitor/rum.js" data-sample="0.1" defer></script>
+```
+
+Origin matching includes scheme, host and port. Without `Origin`, only
+`Sec-Fetch-Site: same-origin` is accepted. Request bodies are bounded while reading,
+including chunked uploads. Bucket storage is capped at 1,024 sessions per process;
+clients without a valid cookie share an address-based bucket. This is local abuse
+control, not a fleet-wide quota or proof of session identity. The browser keeps
+queries out of page/source paths, captures request IDs from same-origin fetch
+responses, and sends periodic batches. LCP, session-window CLS and interaction-based
+INP are lightweight estimates from the browser's available performance entries.
+
+If `MONITOR_URL` is set, each `llm_call` GETs `{MONITOR_URL}/api/policy/{APP_NAME}`
+(60s cache, 2s timeout, **fail-open**) and raises `BudgetExceeded` on
+`{"throttle": "block"}`. Failed refreshes clear a stale block. Policy responses are
+bounded to 8 KB; redirects are refused so bearer tokens cannot follow a login or a
+different host. Missing `DATABRICKS_TOKEN` means no authorization header. The check
+is synchronous; run blocking provider calls in a worker, as the agent demo does.
+
+`POST /monitor/feedback` over 4 KB is accepted as an empty payload (`{"ok": true}`) so
+the widget does not break. `POST /monitor/event` over 4 KB returns **413**.
+
 ---
 
 ## L1 — platform telemetry (15 minutes)
@@ -92,7 +201,7 @@ Every server span now carries the correlation envelope:
 | ------------------------- | ----------------------------------------------------------------------------- |
 | `app.client_request_id`   | one request across UI ↔ app ↔ gateway ↔ logs                                  |
 | `session.id`              | groups a user journey (cookie-persisted)                                      |
-| `user.id_hash`            | per-user adoption/errors/cost **without PII** (SHA-256 of the forwarded user) |
+| `user.id_hash`            | per-user adoption/errors/cost **without PII** (HMAC-SHA256[:16] when `MONITOR_HASH_KEY` is set, else SHA-256[:16]) |
 | `app.name`, `app.version` | release/regression tracking (set `APP_VERSION` env on deploy)                 |
 | `journey.step`            | route template — powers "top journeys"                                        |
 
@@ -126,20 +235,25 @@ of the cost job); gold aggregates are kept indefinitely.
 Goal: **every LLM call carries the same envelope**, so tokens and cost join back to
 app / session / request, and agent traces stitch into the OTel request trace.
 
-**1. Stamp token usage on the active span** (works with any client — this is what makes
-per-app AI cost exact, from your own telemetry):
+**1. Wrap each provider call with `llm_call`** (one billable span and one pair of token
+histogram observations per call):
 
 ```python
-from opentelemetry import trace
+from monitor_middleware import llm_call
 
-span = trace.get_current_span()
-span.set_attribute("gen_ai.request.model", endpoint_name)
-span.set_attribute("gen_ai.usage.input_tokens", usage["prompt_tokens"])
-span.set_attribute("gen_ai.usage.output_tokens", usage["completion_tokens"])
+with llm_call(endpoint_name) as usage:
+    response = client.chat.completions.create(model=endpoint_name, messages=messages)
+    usage.set(input_tokens=response.usage.prompt_tokens,
+              output_tokens=response.usage.completion_tokens)
 ```
 
-The nightly cost job aggregates these `gen_ai.*` attributes per app/day into
-`costs_daily` — no gateway dependency.
+For streaming, call `first_token()` on the first content chunk, then `set()` with
+the last usage report. Repeated `set()` calls replace counts; they never accumulate
+repeated input tokens. Metrics emit once on exit, even when the trace is sampled
+out. `trace_sql` and `llm_call` classify failures without automatically attaching
+SQL/provider exception payloads. Do not repeat token totals on the server span:
+the agent demo keeps response totals separately to avoid duplicate billing signals.
+Service-side rollup changes are a separate roadmap task.
 
 **2. Tag the request through AI Gateway** (adds server-side usage rows with your tags in
 `system.ai_gateway.usage` — request-exact tokens, latency, status):
@@ -216,9 +330,10 @@ sibling traces.
 [ ] OTel packages in requirements.txt
 [ ] monitor_middleware.py installed (golden envelope)
 [ ] APP_VERSION env set on deploy (release tracking)
-[ ] LLM calls: gen_ai.* span attrs + Databricks-Ai-Gateway-Request-Tags
-[ ] /healthz endpoint (fast 200) for probes — note: the apps proxy intercepts GET /healthz
+[ ] LLM calls: llm_call(...) + Databricks-Ai-Gateway-Request-Tags
+[ ] MONITOR_HASH_KEY set where user.id_hash must not be a guessable SHA-256
+[ ] GET /monitor/health for dependency checks — note: the apps proxy intercepts GET /healthz
     (returns 200 with an EMPTY body, even for stopped apps), so journey content assertions
-    must target real paths (/api/..., /)
+    must target real paths (/api/..., /) and probes that need your body must not use /healthz
 [ ] optional: journey spec added to app/journeys.json in the toolkit repo
 ```

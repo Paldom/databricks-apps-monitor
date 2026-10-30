@@ -4,8 +4,8 @@ build-backend = "uv_build"
 
 [project]
 name = "monitor-middleware"
-version = "0.1.0"
-description = "Golden-envelope OpenTelemetry middleware for Databricks Apps — request/session/user correlation plus a feedback route, in one file."
+version = "0.2.0"
+description = "Golden-envelope OpenTelemetry middleware for Databricks Apps — request correlation with redaction, GenAI usage, health checks, and browser RUM."
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
@@ -24,11 +24,15 @@ classifiers = [
 [project.urls]
 Repository = "https://github.com/Paldom/databricks-apps-monitor"
 
+[project.entry-points."opentelemetry_traces_sampler"]
+monitor_parentbased = "monitor_middleware:monitor_parentbased"
+
 [dependency-groups]
 dev = [
     "fastapi>=0.139.0",
     "httpx2>=2.5.0",
     "mypy==2.1.0",
+    "opentelemetry-sdk>=1.25",
     "pre-commit==4.6.0",
     "pytest>=9.1.1",
     "pytest-cov>=7.1.0",

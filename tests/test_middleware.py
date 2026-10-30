@@ -91,7 +91,9 @@ def test_truncate_filter_caps_giant_log_lines() -> None:
     assert f.filter(rec) is True
     assert len(rec.msg) < _MAX_LOG_CHARS + 100
     assert rec.msg.endswith("chars]")
-    short = logging.LogRecord("t", logging.INFO, __file__, 1, "short", ("a",), None)
+    short = logging.LogRecord("t", logging.INFO, __file__, 1, "short %s", ("a",), None)
     assert f.filter(short) is True
-    assert short.msg == "short"
-    assert short.args == ("a",)  # untouched below the cap
+    assert short.msg == "short a"
+    assert short.args == ()
+    assert f.filter(short) is True  # second pass is a no-op
+    assert short.msg == "short a"
