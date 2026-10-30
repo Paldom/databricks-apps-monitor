@@ -1,0 +1,56 @@
+/* Hallmark · macrostructure: Workbench · tone: utilitarian · anchor hue: 256
+ * genre: modern-minimal · theme: Cobalt · nav: N3 adapted side-rail · footer: Ft2
+ * Audience: platform, developers, leads, FinOps. Task: prioritize and investigate.
+ * Enrichment: none. Local font fallbacks keep this console entirely offline. */
+:root {
+  --color-paper: oklch(98.5% 0.004 250);
+  --color-surface: oklch(99.6% 0.002 250);
+  --color-sidebar: oklch(96.8% 0.006 250);
+  --color-wash: oklch(95.6% 0.007 250);
+  --color-rule: oklch(87.5% 0.012 250);
+  --color-control: oklch(64% 0.019 250);
+  --color-ink: oklch(24% 0.020 258);
+  --color-body: oklch(34% 0.018 257);
+  --color-muted: oklch(49% 0.022 255);
+  --color-accent: oklch(49% 0.20 256);
+  --color-accent-ink: oklch(99% 0.003 250);
+  --color-accent-soft: oklch(94% 0.027 256);
+  --color-focus: oklch(42% 0.18 256);
+  --color-danger: oklch(46% 0.17 27);
+  --color-danger-soft: oklch(96% 0.018 27);
+  --color-warning: oklch(44% 0.10 68);
+  --color-warning-soft: oklch(96% 0.032 80);
+  --color-success: oklch(42% 0.08 169);
+  --color-success-soft: oklch(96% 0.018 169);
+  --color-graphite: oklch(23% 0.018 258);
+  --color-on-dark: oklch(94% 0.009 250);
+  --color-dark-muted: oklch(75% 0.018 250);
+  --color-overlay: oklch(18% 0.02 258 / 0.42);
+  --color-transparent: oklch(98.5% 0.004 250 / 0);
+  --font-display: "Space Grotesk", "Avenir Next", "Trebuchet MS", sans-serif;
+  --font-body: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", "SFMono-Regular", Menlo, monospace;
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-base: 1rem;
+  --text-lg: 1.25rem;
+  --text-xl: 1.75rem;
+  --text-display: 2rem;
+  --space-2xs: 0.25rem;
+  --space-xs: 0.5rem;
+  --space-sm: 0.75rem;
+  --space-md: 1rem;
+  --space-lg: 1.5rem;
+  --space-xl: 2rem;
+  --space-2xl: 3rem;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in: cubic-bezier(0.7, 0, 0.84, 0);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-micro: 120ms;
+  --dur-short: 220ms;
+  --z-sticky: 200;
+  --z-modal: 400;
+}

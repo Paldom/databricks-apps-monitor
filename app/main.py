@@ -25,9 +25,11 @@ import httpx
 import routes_product
 import uvicorn
 from auth import require_admin
+from console import build_router as build_console_router
 from databricks.sdk import WorkspaceClient
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from opentelemetry import metrics, trace
 from routes_ops import router as ops_router
 from routes_reach import build_router
@@ -551,11 +553,13 @@ async def api_requests(name: str, hours: float = 24) -> dict:
 async def api_errors(name: str, hours: float = 24) -> dict:
     hours = min(hours, 168)
     groups: list = []
+    source_errors = []
     try:
         groups = await q.run(q.ERROR_GROUPS, ttl=300, app=name)
     except Exception:  # noqa: BLE001 — view appears after first gold run
-        pass
+        source_errors.append("Error fingerprints")
     return {
+        "_source_errors": source_errors,
         "failed_requests": await _q(q.run(q.ERROR_SPANS, app=name, since=q.since(hours))),
         "error_logs": await _q(q.run(q.ERROR_LOGS, app=name, since=q.since(hours))),
         "groups": groups,
@@ -631,11 +635,13 @@ async def api_analytics(name: str) -> dict:
     daily = await _q(q.run(q.USAGE_DAILY, ttl=300, app=name))
     users = await _q(q.run(q.USERS_TOP, ttl=300, app=name))
     mtd = []
+    source_errors = []
     try:
         mtd = await q.run(q.MTD_BY_APP, ttl=900)
     except Exception:  # noqa: BLE001
-        pass
+        source_errors.append("Month-to-date cost")
     return {
+        "_source_errors": source_errors,
         "daily": daily,
         "users": users,
         "mtd_usd": next((r["mtd_usd"] for r in mtd if r["name"] == name), None),
@@ -644,20 +650,24 @@ async def api_analytics(name: str) -> dict:
 
 @app.get("/api/apps/{name}/genai")
 async def api_genai(name: str) -> dict:
-    async def safe(query, **kw):
+    source_errors = []
+
+    async def safe(query, label, **kw):
         try:
             return await q.run(query, **kw)
         except Exception:  # noqa: BLE001 — views appear as jobs run
+            source_errors.append(label)
             return []
 
     return {
+        "_source_errors": source_errors,
         "daily": await _q(q.run(q.GENAI_DAILY, ttl=300, app=name)),
         "top": await _q(q.run(q.GENAI_TOP, ttl=300, app=name)),
-        "error_taxonomy": await safe(q.GENAI_ERRORS, ttl=300, app=name),
-        "agent_steps": await safe(q.AGENT_STEPS, ttl=300, app=name),
-        "quality": await safe(q.QUALITY_APP, ttl=600, app=name),
-        "feedback": await safe(q.FEEDBACK_APP, ttl=300, app=name),
-        "feedback_recent": await safe(q.FEEDBACK_RECENT, ttl=300, app=name),
+        "error_taxonomy": await safe(q.GENAI_ERRORS, "LLM error taxonomy", ttl=300, app=name),
+        "agent_steps": await safe(q.AGENT_STEPS, "Agent steps", ttl=300, app=name),
+        "quality": await safe(q.QUALITY_APP, "Quality evaluations", ttl=600, app=name),
+        "feedback": await safe(q.FEEDBACK_APP, "Feedback summary", ttl=300, app=name),
+        "feedback_recent": await safe(q.FEEDBACK_RECENT, "Recent feedback", ttl=300, app=name),
     }
 
 
@@ -669,11 +679,12 @@ async def api_deps(name: str) -> dict:
 @app.get("/api/apps/{name}/timeline")
 async def api_timeline(name: str) -> dict:
     events: list[dict] = []
+    source_errors = []
     try:
         for r in await q.run(q.ALERTS_APP, ttl=120, app=name):
             events.append({"ts": r["ts"], "type": "alert", **r})
     except Exception:  # noqa: BLE001
-        pass
+        source_errors.append("App alerts")
     try:
         for r in await q.run(q.DEPLOYMENTS, ttl=300, app=name):
             events.append(
@@ -687,25 +698,28 @@ async def api_timeline(name: str) -> dict:
                 }
             )
     except Exception:  # noqa: BLE001
-        pass
+        source_errors.append("Deployment history")
     releases = []
     try:
         releases = await q.run(q.RELEASES, ttl=300, app=name)
     except Exception:  # noqa: BLE001
-        pass
+        source_errors.append("Release performance")
     events.sort(key=lambda e: str(e["ts"]), reverse=True)
-    return {"events": events[:120], "releases": releases}
+    return {"_source_errors": source_errors, "events": events[:120], "releases": releases}
 
 
 @app.get("/api/apps/{name}/ops")
 async def api_ops(name: str) -> dict:
-    async def safe(query, **kw):
+    source_errors = []
+
+    async def safe(query, label, **kw):
         try:
             return await q.run(query, **kw)
         except Exception:  # noqa: BLE001 — tables appear as jobs run
+            source_errors.append(label)
             return []
 
-    cfg = await safe(q.CONFIG_GET, ttl=30, app=name)
+    cfg = await safe(q.CONFIG_GET, "App configuration", ttl=30, app=name)
     resources = fleet.get(name, {}).get("resources", [])
     job_ids = sorted(
         {
@@ -719,16 +733,20 @@ async def api_ops(name: str) -> dict:
     if job_ids:
         ws = await asyncio.to_thread(_workspace_id)
         job_health = await safe(
-            q.JOB_HEALTH.format(ids=",".join(map(str, job_ids))), ttl=600, ws=str(ws)
+            q.JOB_HEALTH.format(ids=",".join(map(str, job_ids))),
+            "Bound job health",
+            ttl=600,
+            ws=str(ws),
         )
     return {
+        "_source_errors": source_errors,
         "resources": resources,
-        "deployments": await safe(q.DEPLOYMENTS, ttl=300, app=name),
-        "permissions": await safe(q.PERMS_APP, ttl=600, app=name),
-        "audit": await safe(q.AUDIT_APP, ttl=600, app=name),
-        "releases": await safe(q.RELEASES, ttl=300, app=name),
+        "deployments": await safe(q.DEPLOYMENTS, "Deployment history", ttl=300, app=name),
+        "permissions": await safe(q.PERMS_APP, "Permissions", ttl=600, app=name),
+        "audit": await safe(q.AUDIT_APP, "App audit", ttl=600, app=name),
+        "releases": await safe(q.RELEASES, "Release performance", ttl=300, app=name),
         "config": cfg[0] if cfg else None,
-        "telemetry_volume": await safe(q.TELEMETRY_VOLUME, ttl=600, app=name),
+        "telemetry_volume": await safe(q.TELEMETRY_VOLUME, "Telemetry volume", ttl=600, app=name),
         "job_health": job_health,
         "capacity": capacity.get(name),
     }
@@ -839,8 +857,10 @@ async def api_capacity(name: str, actor: str = Depends(require_admin)) -> dict:
 
 @app.post("/api/actions/appctl/{name}/{action}")
 async def api_appctl(name: str, action: str, actor: str = Depends(require_admin)) -> dict:
-    if action not in ("stop", "start"):
-        raise HTTPException(400, "action must be stop|start")
+    if action not in ("stop", "start", "restart"):
+        raise HTTPException(400, "action must be stop|start|restart")
+    if action in ("stop", "restart") and name == "apps-monitor":
+        raise HTTPException(400, "apps-monitor is protected from stop and restart")
     job_id = os.environ.get("STOPPER_JOB_ID")
     if not job_id:
         raise HTTPException(500, "STOPPER_JOB_ID not configured")
@@ -874,19 +894,25 @@ async def api_provision(body: dict, actor: str = Depends(require_admin)) -> dict
 
 @app.get("/api/governance")
 async def api_governance() -> dict:
-    async def safe(query, **kw):
+    source_errors = []
+
+    async def safe(query, label, **kw):
         try:
             return await q.run(query, **kw)
         except Exception:  # noqa: BLE001
+            source_errors.append(label)
             return []
 
     return {
-        "chargeback": await safe(q.CHARGEBACK, ttl=600),
-        "configs": await safe(q.CONFIGS_ALL, ttl=120),
-        "mtd": await safe(q.MTD_BY_APP, ttl=900),
-        "usage": await safe(q.USAGE_FLEET, ttl=600),
-        "telemetry_active": [r["name"] for r in await safe(q.TELEMETRY_ACTIVE, ttl=600)],
-        "audit": await safe(q.AUDIT_FLEET, ttl=600),
+        "_source_errors": source_errors,
+        "chargeback": await safe(q.CHARGEBACK, "Cost allocation", ttl=600),
+        "configs": await safe(q.CONFIGS_ALL, "App configuration", ttl=120),
+        "mtd": await safe(q.MTD_BY_APP, "Month-to-date cost", ttl=900),
+        "usage": await safe(q.USAGE_FLEET, "Fleet usage", ttl=600),
+        "telemetry_active": [
+            r["name"] for r in await safe(q.TELEMETRY_ACTIVE, "Telemetry coverage", ttl=600)
+        ],
+        "audit": await safe(q.AUDIT_FLEET, "Fleet audit", ttl=600),
     }
 
 
@@ -928,27 +954,36 @@ async def api_fleet_enrich() -> dict:
 async def api_review(name: str) -> dict:
     rows = await _q(q.run(q.REVIEW_LATEST, ttl=300, app=name))
     overview = None
+    source_errors = []
     try:  # overview_json lands with the first post-update review run
         ov = await q.run(q.REVIEW_OVERVIEW, ttl=300, app=name)
         if ov and ov[0].get("overview_json"):
             overview = json.loads(ov[0]["overview_json"])
     except Exception:  # noqa: BLE001
-        pass
-    return {"review": rows[0] if rows else None, "overview": overview}
+        source_errors.append("Review overview")
+    return {
+        "_source_errors": source_errors,
+        "review": rows[0] if rows else None,
+        "overview": overview,
+    }
 
 
 @app.get("/api/apps/{name}/cost")
 async def api_cost(name: str) -> dict:
-    async def safe(query, **kw):
+    source_errors = []
+
+    async def safe(query, label, **kw):
         try:
             return await q.run(query, **kw)
         except Exception:  # noqa: BLE001
+            source_errors.append(label)
             return []
 
-    forecast = await safe(q.FORECAST, ttl=900, app=name)
-    cfg = await safe(q.CONFIG_GET, ttl=120, app=name)
-    mtd = await safe(q.MTD_BY_APP, ttl=900)
+    forecast = await safe(q.FORECAST, "Cost forecast", ttl=900, app=name)
+    cfg = await safe(q.CONFIG_GET, "App configuration", ttl=120, app=name)
+    mtd = await safe(q.MTD_BY_APP, "Month-to-date cost", ttl=900)
     return {
+        "_source_errors": source_errors,
         "daily": await _q(q.run(q.COST_APP, ttl=600, app=name)),
         "forecast": forecast[0] if forecast else None,
         "budget": (cfg[0] if cfg else {}).get("budget_usd_month") if cfg else None,
@@ -1024,14 +1059,21 @@ async def api_alerts() -> dict:
 @app.get("/api/apps/{name}/synthetics")
 async def api_synthetics(name: str, hours: float = 24) -> dict:
     browser: list = []
+    source_errors = []
     try:  # browser-mode job rows (with volume artifact path), if that job has ever run
-        browser = await q.run(q.SYNTH_BROWSER, ttl=300, app=name)
+        browser = await q.run(q.SYNTH_BROWSER, ttl=300, app=name, since=q.since(min(hours, 168)))
     except Exception:  # noqa: BLE001 — artifact column appears after the job's first run
+        source_errors.append("Browser artifact metadata")
         try:
             browser = await q.run(q.SYNTH_RUNS, ttl=300, app=name, since=q.since(min(hours, 168)))
         except Exception:  # noqa: BLE001
-            pass
-    return {"live": synth.get(name), "interval_s": SYNTH_INTERVAL, "browser": browser}
+            source_errors.append("Browser check history")
+    return {
+        "_source_errors": source_errors,
+        "live": synth.get(name),
+        "interval_s": SYNTH_INTERVAL,
+        "browser": browser,
+    }
 
 
 @app.post("/api/actions/autostop-policy")
@@ -1052,13 +1094,15 @@ async def autostop_policy(body: dict, actor: str = Depends(require_admin)) -> di
                 tags[r["name"]] = json.loads(r.get("tags_json") or "{}")
             except Exception:  # noqa: BLE001
                 tags[r["name"]] = {}
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as e:
+        raise HTTPException(503, "Auto-stop configuration unavailable; no policy applied") from e
     targets = [
         n for n in sorted(fleet) if n != "apps-monitor" and tags.get(n, {}).get("env") != "prod"
     ]
     if dry:
         return {"targets": targets, "mode": mode, "idle_hours": idle_hours, "dry_run": True}
+    if "expected_targets" in body and body["expected_targets"] != targets:
+        raise HTTPException(409, "Fleet policy targets changed; preview the rule again")
     ws = str(await asyncio.to_thread(_workspace_id))
     applied, failed = [], []
     for n in targets:
@@ -1112,6 +1156,11 @@ async def refresh_inventory(actor: str = Depends(require_admin)) -> dict:
 
 @app.get("/")
 async def index() -> FileResponse:
+    return FileResponse(STATIC_DIR / "console" / "index.html")
+
+
+@app.get("/classic")
+async def classic() -> FileResponse:
     return FileResponse(STATIC_DIR / "index.html")
 
 
@@ -1124,11 +1173,11 @@ async def icon() -> FileResponse:
 # Served as static files so their shared _common.js module import resolves:
 #   /ui/<concept>.html  →  fetches ../api/*  →  /api/*
 if (STATIC_DIR / "ui").is_dir():
-    from fastapi.staticfiles import StaticFiles
-
     app.mount("/ui", StaticFiles(directory=str(STATIC_DIR / "ui"), html=True), name="ui")
 
 
+app.mount("/console", StaticFiles(directory=str(STATIC_DIR / "console"), html=True), name="console")
+app.include_router(build_console_router(globals()))
 app.include_router(build_router(globals()))
 
 if __name__ == "__main__":

@@ -69,6 +69,8 @@ def service(monkeypatch):
         ("routes_reach", "app"),
         ("synthetic", "app"),
         ("mlflow_traces", "app"),
+        ("console_topology", "app"),
+        ("console", "app"),
         ("main", "app"),
     ):
         spec = importlib.util.spec_from_file_location(name, ROOT / directory / f"{name}.py")

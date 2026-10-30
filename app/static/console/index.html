@@ -1,0 +1,41 @@
+<!-- Hallmark · pre-emit critique: P5 H5 E4 S5 R5 V4 -->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light">
+  <meta name="description" content="Apps Monitor — fleet health, investigations, cost and governance.">
+  <title>Fleet overview · Apps Monitor</title>
+  <script>
+    // The same document is served at / and /console/index.html (also usable offline).
+    const assets = /\/(?:console|app\/static\/console)\/(?:index\.html)?$/.test(location.pathname) ? './' : 'console/';
+    for (const name of ['tokens.css', 'styles.css']) {
+      const sheet = document.createElement('link'); sheet.rel = 'stylesheet'; sheet.href = assets + name;
+      document.head.append(sheet);
+    }
+  </script>
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  <div id="shell" class="shell">
+    <aside id="sidebar" class="sidebar" aria-label="Application navigation"></aside>
+    <div class="workspace">
+      <header id="topbar" class="topbar"></header>
+      <main id="main" tabindex="-1" aria-busy="true">
+        <div class="loading" role="status"><h1>Loading fleet snapshot…</h1><div class="skeleton"></div><div class="skeleton"></div></div>
+      </main>
+      <footer class="footer"><span>Apps Monitor <span aria-hidden="true">/</span> Operations console</span><span id="footer-date"></span></footer>
+    </div>
+  </div>
+  <dialog id="palette" aria-labelledby="palette-title">
+    <div class="palette-head"><label id="palette-title" for="command-input">Jump to an app or view</label><button class="icon-button" id="close-palette" aria-label="Close search">×</button></div>
+    <input id="command-input" type="search" autocomplete="off" placeholder="fraud-triage, costs, alerts…" role="combobox" aria-autocomplete="list" aria-controls="command-results" aria-expanded="true">
+    <div id="command-results" role="listbox" aria-label="Search results"></div>
+    <div class="palette-foot"><span>↑ ↓ to navigate · Enter to open</span><kbd>Esc</kbd></div>
+  </dialog>
+  <div id="announcement" class="sr-only" aria-live="polite"></div>
+  <noscript><p class="notice error">JavaScript is required to use the operations console.</p></noscript>
+  <script>const boot = document.createElement('script'); boot.src = assets + 'boot.js'; document.body.append(boot);</script>
+</body>
+</html>

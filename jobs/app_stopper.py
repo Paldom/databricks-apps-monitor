@@ -5,7 +5,7 @@ Modes (app_config.auto_stop):
   idle   — stop when no real request (server span, non-probe) for idle_hours (default 24)
   budget — HARD budget enforcement: stop when month-to-date compute $ ≥ budget_usd_month
            (article: "hard budget limits enforced from the first deployment, not retrofitted")
-Manual one-off: run with action=stop|start and app=<name> job parameters (the monitor's
+Manual one-off: run with action=stop|start|restart and app=<name> job parameters (the monitor's
 Ops tab triggers this — the monitor SP itself only holds CAN_USE).
 The monitor and currently-deploying apps are never touched. Every action → alert_events.
 """
@@ -20,6 +20,19 @@ from databricks.sdk import WorkspaceClient
 from pyspark.sql import SparkSession
 
 PROTECTED = {"apps-monitor"}
+
+
+def manual_control(w, name: str, action: str) -> None:
+    if action not in {"start", "stop", "restart"}:
+        raise ValueError("action must be stop|start|restart")
+    if action in {"stop", "restart"} and name in PROTECTED:
+        raise ValueError(f"{name} is protected — refusing manual {action}")
+    if action == "restart":
+        # The start request must wait for shutdown; a failed stop never starts a second run.
+        w.apps.stop_and_wait(name, timeout=timedelta(minutes=10))
+        w.api_client.do("POST", f"/api/2.0/apps/{name}/start")
+    else:
+        w.api_client.do("POST", f"/api/2.0/apps/{name}/{action}")
 
 
 def scheduled_start(now: datetime, tz: str) -> datetime:
@@ -74,6 +87,7 @@ def emit(spark, cat, sch, rows):
         owned_rules=(
             "manual_stop",
             "manual_start",
+            "manual_restart",
             "auto_stopped",
             "auto_started",
             "budget_stopped",
@@ -86,7 +100,7 @@ def main() -> None:
     p.add_argument("--catalog", required=True)
     p.add_argument("--schema", required=True)
     p.add_argument("--tz", default="Europe/Budapest")
-    p.add_argument("--action", default="", help="manual: stop|start")
+    p.add_argument("--action", default="", help="manual: stop|start|restart")
     p.add_argument("--app", default="", help="manual target app")
     p.add_argument("--jobs-dir", default="")
     args = p.parse_args()
@@ -97,12 +111,7 @@ def main() -> None:
     ws = str(w.get_workspace_id())
 
     if args.action and args.app:  # manual one-off from the monitor UI
-        if args.action == "stop" and args.app in PROTECTED:
-            raise SystemExit(f"{args.app} is protected — refusing manual stop")
-        if args.action == "stop":
-            w.api_client.do("POST", f"/api/2.0/apps/{args.app}/stop")
-        elif args.action == "start":
-            w.api_client.do("POST", f"/api/2.0/apps/{args.app}/start")
+        manual_control(w, args.app, args.action)
         clear_night_mute(spark, fq, ws, args.app)
         emit(
             spark,

@@ -26,6 +26,12 @@ scripts/deploy.sh monitor -t dev -p <profile>       # sources .env, deploys, pri
 
 ## Features
 
+- **Operations console** — the default `/` UI preserves the V1 workbench and
+  “Every app, at a glance” tiles, with real fleet data, source availability,
+  60-second refresh, and lazy trace/error drill-down. `/classic` retains provisioning,
+  capacity ramps, policies, start/stop and review actions; the sidebar links to it.
+  Use `/?demo=1` for the offline sample. `GET /api/console/snapshot` supplies the
+  console's JSON contract. See [console data sources and limitations](docs/CONSOLE.md).
 - **Reliability** — live fleet board (reachability probes, real-traffic p95, error rate),
   synthetic journeys, incident timeline, anomaly detection vs baselines.
 - **Diagnostics** — per-route request/latency/error telemetry, log explorer,

@@ -134,6 +134,7 @@ ROUTES = f"""
          count(*) AS requests,
          sum(CASE WHEN {IS_ERROR} THEN 1 ELSE 0 END) AS errors,
          round(avg({DUR_MS}), 1) AS avg_ms,
+         round(approx_percentile({DUR_MS}, 0.5), 1) AS p50_ms,
          round(approx_percentile({DUR_MS}, 0.95), 1) AS p95_ms
   FROM {t("otel_spans")}
   WHERE service_name = :app AND {IS_SERVER} AND {NOT_PROBE} AND time >= :since::timestamp
@@ -197,7 +198,7 @@ OTEL_BY_MLFLOW = f"""
   ORDER BY s.start_time_unix_nano LIMIT 300"""
 
 TRACE_LOGS = f"""
-  SELECT time, coalesce(severity_text, 'INFO') AS severity, cast(body AS string) AS body, span_id
+  SELECT time, service_name, coalesce(severity_text, 'INFO') AS severity, cast(body AS string) AS body, span_id
   FROM {t("otel_logs")}
   WHERE trace_id = :tid AND time >= now() - INTERVAL 7 DAYS
   ORDER BY time LIMIT 200"""
@@ -262,6 +263,10 @@ SYNTH_RUNS = f"""
 REAL_PERF_FLEET = f"""
   SELECT service_name AS name,
          round(approx_percentile({DUR_MS}, 0.95), 1) AS real_p95_ms,
+         round(approx_percentile({DUR_MS}, 0.5), 1) AS p50_ms,
+         round(approx_percentile({DUR_MS}, 0.99), 1) AS p99_ms,
+         count_if({IS_ERROR}) AS errors_24h,
+         count(DISTINCT {vg("user.id_hash")}) AS active_users,
          count(*) AS requests_24h
   FROM {t("otel_spans")}
   WHERE {IS_SERVER} AND {NOT_PROBE} AND time >= current_timestamp() - INTERVAL 24 HOURS
@@ -279,8 +284,10 @@ REVIEW_OVERVIEW = f"""
 
 # browser-mode (Playwright) runs incl. the UC-volume artifact path (column added by the job)
 SYNTH_BROWSER = f"""
-  SELECT run_ts, journey, ok, status_code, latency_ms, detail, artifact
+  SELECT run_ts, journey, step_name, ok, status_code, latency_ms, within_budget,
+         detail, artifact, vantage, failure_stage
   FROM {t("synthetic_runs")} WHERE app = :app AND kind = 'playwright'
+  AND run_ts >= :since::timestamp
   ORDER BY run_ts DESC LIMIT 50"""
 
 # ---- adoption / genai / deps / timeline / governance (gold views from gold_views.py)
@@ -302,6 +309,20 @@ DEPS_7D = f"""
          round(max(p95_ms), 1) AS p95_ms, sum(errors) AS errors
   FROM {t("v_dependencies")} WHERE name = :app AND date >= current_date() - 7
   GROUP BY dependency ORDER BY calls DESC LIMIT 30"""
+
+# The dependency view is local to the workspace's telemetry schema. Preserve that
+# identity explicitly; never join remote apps by an unqualified name.
+CONSOLE_DEPENDENCIES = f"""
+  SELECT :ws AS workspace_id, name, dependency, sum(calls) AS calls,
+         sum(avg_ms * calls) / nullif(sum(calls), 0) AS avg_ms,
+         max(p95_ms) AS p95_ms, sum(errors) AS errors
+  FROM {t("v_dependencies")} WHERE date >= current_date() - 7
+  GROUP BY name, dependency ORDER BY name, dependency"""
+
+CONSOLE_RESOURCES = f"""
+  SELECT name, resources_json FROM {t("apps_inventory")}
+  WHERE workspace_id = :ws
+  QUALIFY row_number() OVER (PARTITION BY workspace_id, name ORDER BY snapshot_ts DESC) = 1"""
 
 GENAI_DAILY = f"""
   SELECT date, model, calls, input_tokens, output_tokens, avg_ms, p95_ms, errors
@@ -640,3 +661,94 @@ REACH_FLEET = f"""
   LEFT JOIN usage u ON i.workspace_id = u.workspace_id AND i.name = u.name
   LEFT JOIN costs c ON i.workspace_id = c.workspace_id AND i.name = c.name
   WHERE (:ws = '' OR i.workspace_id = :ws) ORDER BY i.workspace_name, i.name"""
+
+# ---- operations console: bounded fleet reads, never a query per inventory app.
+CONSOLE_HOURLY = f"""SELECT name, hour, requests, errors, p95_ms
+  FROM {t("agg_app_hourly")} WHERE workspace_id = :ws AND traffic_kind = 'real'
+  AND hour >= date_trunc('hour', now()) - INTERVAL 23 HOURS ORDER BY name, hour"""
+CONSOLE_SLOS = SLO_SUMMARY.replace(" AND s.name = :app", "")
+CONSOLE_TELEMETRY = TELEMETRY_HEALTH.replace(" AND name = :app", "")
+CONSOLE_DEPLOYMENTS = f"""SELECT name, deployment_id, create_time, state, mode
+  FROM {t("app_deployments")} WHERE workspace_id = :ws
+  QUALIFY row_number() OVER (PARTITION BY name ORDER BY create_time DESC) <= 10"""
+CONSOLE_FINDINGS = f"""SELECT name,
+  count_if(kind = 'cve' AND severity = 'critical') AS critical,
+  count_if(kind = 'cve' AND severity = 'high') AS high,
+  count_if(kind = 'cve' AND severity = 'medium') AS medium,
+  count_if(kind = 'cve' AND severity = 'low') AS low,
+  count_if(kind = 'secret') AS secrets
+  FROM {t("v_findings_latest")} GROUP BY name"""
+CONSOLE_SYNTHETICS = f"""SELECT * FROM {t("synthetic_runs")}
+  WHERE workspace_id = :ws AND step = -1 AND run_ts >= now() - INTERVAL 24 HOURS
+  QUALIFY row_number() OVER (PARTITION BY app, journey, vantage ORDER BY run_ts DESC) <= 12"""
+CONSOLE_DAILY_COST = f"""SELECT name, date, dbu_usd, ai_usd, total_usd
+  FROM {t("v_unit_economics")} WHERE workspace_id = :ws
+  AND date >= current_date() - 29 ORDER BY name, date"""
+# A missing priced day must not disappear inside SUM and become a complete MTD total.
+CONSOLE_UNIT_ECONOMICS = UNIT_ECONOMICS.replace(
+    "sum(dbu_usd) AS dbu_usd",
+    "CASE WHEN count_if(dbu_usd IS NULL) > 0 THEN NULL ELSE sum(dbu_usd) END AS dbu_usd",
+).replace(
+    "sum(idle_usd) AS idle_usd",
+    "CASE WHEN count_if(idle_usd IS NULL) > 0 THEN NULL ELSE sum(idle_usd) END AS idle_usd",
+)
+CONSOLE_FUNNELS = f"""SELECT * FROM {t("v_funnels")} WHERE workspace_id = :ws
+  AND (name, funnel) IN (SELECT name, funnel FROM {t("funnel_specs")}
+    WHERE workspace_id = :ws ORDER BY name, funnel LIMIT 1)
+  ORDER BY app_version, step_number"""
+CONSOLE_COHORTS = f"""SELECT * FROM {t("v_cohorts")} WHERE workspace_id = :ws
+  AND name = (SELECT min(name) FROM {t("v_cohorts")} WHERE workspace_id = :ws)
+  AND cohort_week >= current_date() - 56 ORDER BY cohort_week, week_number"""
+CONSOLE_GENAI = f"""SELECT name, model, sum(calls) AS calls,
+  sum(input_tokens) AS input_tokens, sum(output_tokens) AS output_tokens
+  FROM {t("v_genai_daily")} WHERE workspace_id = :ws AND date = current_date() - 1
+  GROUP BY name, model"""
+CONSOLE_QUALITY = f"""SELECT * FROM {t("monitor_quality")}
+  QUALIFY row_number() OVER (PARTITION BY name ORDER BY ts DESC) = 1"""
+CONSOLE_FEEDBACK = f"""SELECT name, count(*) AS count_7d, avg(rating) AS avg_stars
+  FROM {t("v_feedback")} WHERE date >= current_date() - 7 GROUP BY name"""
+CONSOLE_GUARDRAILS = f"""SELECT name, kind, count(*) AS findings
+  FROM {t("guardrail_findings")} WHERE workspace_id = :ws AND ts >= now() - INTERVAL 7 DAYS
+  GROUP BY name, kind"""
+CONSOLE_DRIFT = f"""SELECT name, novel_share, week FROM {t("drift_reports")}
+  WHERE workspace_id = :ws
+  QUALIFY row_number() OVER (PARTITION BY name ORDER BY week DESC) = 1"""
+# The gold error view covers raw retention, not 24h, and carries no trace reference.
+# Keep its fingerprint algorithm, but bound the source window and retain correlation.
+CONSOLE_ERRORS = f"""WITH fingerprints AS (
+  SELECT service_name, trace_id, span_id,
+    any_value({vg("exception.fingerprint")}) AS fingerprint,
+    any_value({vg("exception.type")}) AS exception_type,
+    any_value({HTTP_ROUTE}) AS route
+  FROM {t("otel_spans")} WHERE time >= now() - INTERVAL 24 HOURS GROUP BY 1, 2, 3
+), logs AS (
+  SELECT l.*, s.fingerprint AS span_fingerprint, s.exception_type, s.route
+  FROM {t("otel_logs")} l LEFT JOIN fingerprints s
+    ON l.service_name = s.service_name AND l.trace_id = s.trace_id AND l.span_id = s.span_id
+  WHERE l.time >= now() - INTERVAL 24 HOURS
+    AND upper(coalesce(l.severity_text, '')) IN ('ERROR', 'FATAL', 'CRITICAL')
+    AND (:app = '' OR l.service_name = :app)
+) SELECT service_name AS name,
+  coalesce({vg("exception.fingerprint")}, span_fingerprint,
+    substr(sha2(regexp_replace(substr(lower(cast(body AS string)), 1, 400),
+      '[0-9a-f\\\\-]{{8,}}|\\\\d+', '#'), 256), 1, 10)) AS fingerprint,
+  count(*) AS count_24h, min(time) AS first_seen, max(time) AS last_seen,
+  max_by(substr(cast(body AS string), 1, 400), time) AS message,
+  max_by(coalesce({vg("exception.type")}, exception_type), time) AS type,
+  max_by(trace_id, time) AS sample_trace_id, max_by(route, time) AS route
+  FROM logs GROUP BY 1, 2 ORDER BY count_24h DESC LIMIT 100"""
+CONSOLE_REMOTE_COST = f"""SELECT workspace_id, name,
+  CASE WHEN count_if(dbu_usd IS NULL) > 0 THEN NULL ELSE sum(dbu_usd) END AS dbu_usd
+  FROM {t("v_fleet_costs_daily")} WHERE date >= date_trunc('MONTH', current_date())
+  GROUP BY workspace_id, name"""
+CONSOLE_REMOTE_ALERTS = f"SELECT * FROM {t('v_fleet_alerts_open')}"
+CONSOLE_GENAI_SIGNALS = f"""SELECT service_name AS name,
+  approx_percentile({vg("monitor.llm.ttft_ms", "double")}, 0.95) AS ttft_p95_ms,
+  count_if({vg("error.type")} = 'rate_limit') AS rate_limit,
+  count_if({vg("error.type")} = 'timeout') AS timeout,
+  count_if({vg("error.type")} = 'policy') AS policy,
+  count_if({vg("error.type")} = 'schema') AS schema,
+  count_if({vg("error.type")} = 'server') AS server
+  FROM {t("otel_spans")} WHERE time >= now() - INTERVAL 24 HOURS AND {NOT_PROBE}
+  AND {vg("monitor.llm.billable", "boolean")} = true GROUP BY service_name"""
+CONSOLE_PACKAGES = f"SELECT name, deps_json FROM {t('v_scan_latest')}"
