@@ -11,7 +11,14 @@ and every level is optional:
 | **L2 — golden envelope**    | one middleware file                                     | request↔session↔user correlation, journeys, trace joins across apps                            |
 | **L3 — GenAI signals**      | `gen_ai.*` span attrs + gateway request tags (+ MLflow) | per-app AI tokens & calls, cost correlation, agent waterfalls                                  |
 
-The five `example-apps/` are living references: `healthy/` is L2, `agent/` is L3.
+The six `example-apps/` are living references: `healthy/` is L2, `agent/` is L3,
+and `conformance/` exercises SDK v2 with deterministic fake providers and no self-traffic.
+Use the [conformance runbook](CONFORMANCE.md) and `scripts/validate_workspace.py` to check
+exact request/error counts, streaming usage, redaction, identity, health, events, RUM and
+downstream monitor measurements in a live workspace. The fixture uses the byte-identical
+SDK copy; its health toggle respects the SDK's 30-second cache. Bind `MONITOR_HASH_KEY`
+from a secret before claiming HMAC conformance. Browser and webhook checks require real
+browser/receiver evidence; skipped checks never constitute a successful acceptance run.
 
 ## SDK v2 contract
 

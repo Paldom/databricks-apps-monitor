@@ -25,9 +25,9 @@ def test_copy_matches_canonical(copy: Path) -> None:
     )
 
 
-def test_demo_fleet_has_all_five_copies() -> None:
+def test_demo_fleet_has_all_six_copies() -> None:
     demo = [p for p in COPIES if "example-apps" in str(p)]
-    assert len(demo) == 5, f"expected 5 demo-app copies, found {len(demo)}"
+    assert len(demo) == 6, f"expected 6 demo-app copies, found {len(demo)}"
 
 
 def test_sdk_stays_within_copy_in_line_budget() -> None:

@@ -1,4 +1,4 @@
-# Five demo apps, each engineered to light up one part of the toolkit:
+# Six demo apps, each engineered to light up one part of the toolkit:
 #   healthy → green baseline        flaky → errors page       slow → latency page
 #   vuln    → security scans        agent → traces + AI cost
 # healthy/ is the canonical demo source; flaky/ and slow/ are file copies made by
@@ -7,6 +7,54 @@
 # it is the same contract every real app copies from docs/INSTRUMENTATION.md.
 resources:
   apps:
+    conformance:
+      name: monitor-demo-conformance
+      description: "Deterministic SDK conformance fixture; no background traffic"
+      source_code_path: ../conformance
+      config:
+        command: [opentelemetry-instrument, python, main.py]
+        env:
+          - name: OTEL_SERVICE_NAME
+            value: monitor-demo-conformance
+          - name: MONITOR_URL
+            value: ${var.monitor_url}
+          - name: MONITOR_TEAM
+            value: conformance
+          - name: MONITOR_COST_CENTER
+            value: cc-test
+          - name: OTEL_RESOURCE_ATTRIBUTES
+            value: team=conformance,cost_center=cc-test
+          - name: APP_VERSION
+            value: ${var.conformance_version}
+          # Bind MONITOR_HASH_KEY from a secret before validation; see CONFORMANCE.md.
+          - name: OTEL_TRACES_EXPORTER
+            value: otlp
+          - name: OTEL_METRICS_EXPORTER
+            value: otlp
+          - name: OTEL_LOGS_EXPORTER
+            value: otlp
+          - name: OTEL_TRACES_SAMPLER
+            value: parentbased_traceidratio
+          - name: OTEL_TRACES_SAMPLER_ARG
+            value: "1.0"
+          - name: OTEL_SEMCONV_STABILITY_OPT_IN
+            value: http/dup
+          - name: OTEL_PYTHON_LOG_CORRELATION
+            value: "true"
+      resources:
+        - name: monitor-app
+          app:
+            name: apps-monitor
+            permission: CAN_USE
+      telemetry_export_destinations:
+        - unity_catalog:
+            logs_table: ${var.catalog}.${var.schema}.otel_logs
+            traces_table: ${var.catalog}.${var.schema}.otel_spans
+            metrics_table: ${var.catalog}.${var.schema}.otel_metrics
+      permissions:
+        - level: CAN_USE
+          group_name: users
+
     healthy:
       name: monitor-demo-healthy
       description: "Demo fleet: clean fast baseline app"

@@ -69,6 +69,7 @@ fleet: dict[str, dict] = {}  # app name -> inventory info
 _bg_tasks: set = set()  # keep create_task references alive
 probes: dict[str, deque] = {}  # app name -> deque[(epoch, ok, http_code, ms)]
 ttfbs: dict[str, deque] = {}  # app name -> deque[ms to first byte] (successful probes)
+health_detail: dict[str, dict] = {}  # app name -> last /monitor/health body (SDK v2 apps)
 capacity: dict[str, dict] = {}  # app name -> last in-app capacity-ramp result
 _capacity_lock = asyncio.Lock()
 _ws_id: int | None = None
@@ -142,12 +143,23 @@ async def _probe_one(client: httpx.AsyncClient, name: str, url: str, headers: di
     try:
         # stream so time-to-first-byte (headers received) is observable separately —
         # the streaming SLO the p95 total hides (article: track TTFT, not just p95)
-        async with client.stream("GET", f"{url}/healthz", headers=headers) as r:
-            ttfb = round((time.perf_counter() - start) * 1000, 1)
-            await r.aread()
+        # SDK v2 apps answer /monitor/health with their own dependency checks (the proxy
+        # intercepts /healthz, so only this route reaches the app); older apps 404 here
+        for path in ("/monitor/health", "/healthz"):
+            start = time.perf_counter()
+            async with client.stream("GET", f"{url}{path}", headers=headers) as r:
+                ttfb = round((time.perf_counter() - start) * 1000, 1)
+                body = await r.aread()
+            if r.status_code not in (404, 405):
+                break
         # a STOPPED app's URL serves an HTML placeholder with HTTP 200 — an HTML
-        # answer to /healthz (that isn't a 404 fallback) means the app isn't running
+        # answer to a health route (that isn't a 404 fallback) means the app isn't running
         placeholder = r.status_code == 200 and "text/html" in r.headers.get("content-type", "")
+        if path == "/monitor/health" and "json" in r.headers.get("content-type", ""):
+            try:
+                health_detail[name] = json.loads(body)
+            except ValueError:
+                health_detail.pop(name, None)
         if r.status_code in (404, 405):
             r = await client.get(url + "/", headers=headers)
             placeholder = False
@@ -512,6 +524,7 @@ async def api_app(name: str) -> dict:
         "series": [[round(p[0]), 1 if p[1] else 0, p[2], p[3]] for p in pts],
         "ttfb_ms": round(sum(tf) / len(tf), 1) if tf else None,
         "ttfb_last_ms": tf[-1] if tf else None,
+        "health": health_detail.get(name),
     }
 
 

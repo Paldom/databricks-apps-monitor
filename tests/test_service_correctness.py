@@ -394,3 +394,50 @@ def test_anomaly_and_budget_checks_clear_conditions_without_findings(service, mo
     emit.reset_mock()
     service.gold_views.check_budgets(spark, "`cat`.`sch`")
     emit.assert_called_once_with(spark, "cat", "sch", [], owned_rules=("budget_burn",))
+
+
+def _probe_client(responses):
+    """Stream responses keyed by path suffix; unknown paths 404."""
+
+    def stream(method, url, headers):
+        status, ctype, body = responses.get(url.rsplit("/", 1)[-1], (404, "", b""))
+        r = SimpleNamespace(
+            status_code=status, headers={"content-type": ctype}, aread=AsyncMock(return_value=body)
+        )
+        ctx = MagicMock()
+        ctx.__aenter__ = AsyncMock(return_value=r)
+        ctx.__aexit__ = AsyncMock(return_value=None)
+        return ctx
+
+    return SimpleNamespace(
+        stream=MagicMock(side_effect=stream),
+        get=AsyncMock(return_value=SimpleNamespace(status_code=200)),
+    )
+
+
+def test_probe_prefers_sdk_health_and_sees_degraded_dependencies(service):
+    main = service.main
+    main.probes.clear()
+    body = b'{"status": "degraded", "checks": {"db": {"ok": false}}}'
+    client = _probe_client({"health": (503, "application/json", body)})
+    asyncio.run(main._probe_one(client, "v2", "https://app.invalid", {}))
+    _, ok, code, _ = main.probes["v2"][-1]
+    assert (ok, code) == (False, 503)
+    assert main.health_detail["v2"]["checks"]["db"]["ok"] is False
+    assert client.stream.call_args_list[0].args[1].endswith("/monitor/health")
+    assert client.stream.call_count == 1
+
+
+def test_probe_falls_back_to_healthz_for_v1_apps_and_flags_placeholders(service):
+    main = service.main
+    main.probes.clear()
+    client = _probe_client({"healthz": (200, "application/json", b"{}")})
+    asyncio.run(main._probe_one(client, "v1", "https://app.invalid", {}))
+    assert main.probes["v1"][-1][1:3] == (True, 200)
+    assert [c.args[1].rsplit("/", 1)[-1] for c in client.stream.call_args_list] == [
+        "health",
+        "healthz",
+    ]
+    stopped = _probe_client({"health": (200, "text/html", b"<html>")})
+    asyncio.run(main._probe_one(stopped, "stopped", "https://app.invalid", {}))
+    assert main.probes["stopped"][-1][1] is False

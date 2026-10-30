@@ -13,6 +13,9 @@ sync:
     - "**/__pycache__/**"
 
 variables:
+  conformance_version:
+    description: Release label for deterministic validation runs
+    default: conformance-v1
   catalog:
     default: main
   schema:
