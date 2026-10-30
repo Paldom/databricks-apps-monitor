@@ -18,6 +18,15 @@ sync:
     - "*.md"
 
 variables:
+  drift_embedding_endpoint:
+    description: Embedding endpoint for opt-in weekly prompt drift
+    default: databricks-gte-large-en
+  drift_threshold:
+    description: Novel prompt share above which to alert (at least 50 samples)
+    default: 0.25
+  drift_samples:
+    description: Maximum prompts embedded per app per weekly drift run
+    default: 200
   monitor_cost_pct:
     description: Alert when daily monitor known cost exceeds this percentage of fleet cost
     default: 10

@@ -91,7 +91,7 @@ def grant_monitor_access(
     for stmt in (
         f"GRANT USE CATALOG ON CATALOG `{catalog}` TO `{sp}`",
         f"GRANT USE SCHEMA ON SCHEMA `{catalog}`.`{schema}` TO `{sp}`",
-        # Inherited SELECT covers product tables/views as they appear after the gold task.
+        # Inherited SELECT includes drift_reports when the opt-in weekly job creates it.
         f"GRANT SELECT ON SCHEMA `{catalog}`.`{schema}` TO `{sp}`",
         # the monitor appends its probe-rule alert transitions itself
         f"GRANT MODIFY ON TABLE `{catalog}`.`{schema}`.`alert_events` TO `{sp}`",

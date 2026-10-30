@@ -250,4 +250,8 @@ def router(require_admin, workspace_id, fleet: dict, summary) -> APIRouter:
             "templates": await read(q.TEMPLATE_DRIFT, app=name, since=q.since(days * 24)),
         }
 
+    @api.get("/api/apps/{name}/drift")
+    async def drift(name: str):
+        return {"reports": await read(q.DRIFT_REPORTS, app=name)}
+
     return api

@@ -23,9 +23,11 @@ this is the exhaustive list.
 | S7 browser experience            | `monitor.rum` logs: page/route views, p75 LCP/CLS/INP per route/day and hashed JS error groups with trace links                                                                           | `v_rum_daily`, `otel_logs`                                                                                          |
 | S8 guardrails                    | email/phone/IBAN/card detectors (IBAN checksum, card Luhn); redacted FMAPI jailbreak/policy classifier; fixed masks and hashes only                                                       | `guardrail_findings`, `guardrail_samples`, `monitor_quality`                                                        |
 | S8 prompt drift                  | normalized prompt hashes; new hash exceeds 20% of daily samples, with a prior seven-day baseline and at least five prompts                                                                | `guardrail_samples`, `guardrail_findings`, `alert_events`                                                           |
+| S14 prompt drift (opt-in)        | weekly redacted prompt embeddings; Spark ML KMeans chosen by silhouette; novel share against last week's centroids and p95 distance; GenAI block and read API | `drift_reports`, `alert_events` |
 | K7 token policy                  | hourly metric totals with billable-span fallback; warn/block budget state; memory-only policy API refreshed alongside fleet                                                               | `app_config.token_budget_day`, `throttle`, `tokens_today`, `tokens_last_hour`, `policy_updated_at`                  |
 | Synthetic monitoring             | probes/journeys/capacity send `x-monitor-synthetic`; queries prefer `traffic.kind`, with legacy healthz-name fallback                                                                     | `app/journeys.json`, `otel_spans`                                                                                   |
 | Alerting                         | startup rehydration; job-owned firing/resolved transitions; partial scans resolve only evaluated apps; open alerts in UI                                                                  | `alert_events`, `v_alerts_open`                                                                                     |
+| Job alert webhooks               | when `ALERT_WEBHOOK_URL` is set, five-minute polling forwards unmuted job transitions using the existing payload; in-memory cursor advances only after successful delivery | `alert_events` (`source='job'`), `app/alerts.py`, monitor scheduler |
 | Maintenance windows (S1)         | Admin mute/unmute with app/rule globs and UTC start/end; fleet-refresh cache; evaluation continues, muted transitions persist and skip webhooks                                           | `alert_mutes`, `alert_events.muted`, `monitor_audit`                                                                |
 | Night maintenance (S1)           | Night stop mutes `app_stopped`/`app_down` before stopping; only automatically stopped apps restart on the first hourly run after 06:00 local                                              | `app_config`, `alert_mutes`, `alert_events`                                                                         |
 | Service objectives (S2)          | Admin spec editor; quarter-hour serverless job MERGEs two hours of completed 5-minute buckets; both-window fast/slow/ticket burns and running-app no-data alerts; per-app budget chart    | `slo_specs`, `sli_5m`, `alert_events`                                                                               |
@@ -60,6 +62,56 @@ this is the exhaustive list.
 
 See [FEDERATION.md](FEDERATION.md) for deployment modes, grants, same-region
 constraints, external workflow setup, MCP authentication and public-snapshot policy.
+
+S14 deploys `monitor-prompt-drift` as a weekly Monday 07:00 UTC serverless job in
+STANDARD mode, **PAUSED by default**. Opt in by unpausing its schedule; embedding
+calls add cost and short prompts cluster noisily. The job needs access to app-bound
+MLflow experiments and CAN_QUERY on the configured embedding endpoint. Bundle
+variables are `drift_embedding_endpoint` (default `databricks-gte-large-en`),
+`drift_samples` (200 per app/run), and `drift_threshold` (0.25). Configure these through
+`BUNDLE_VAR_*` in the existing `.env` deployment flow. No new Python dependencies
+are added; the job uses the serverless environment's Spark ML, SDK and HTTP client.
+
+The job reads up to N recent MLflow request previews from the last seven days,
+reuses quality-evaluation redaction, and collapses whitespace before `ai_query`.
+Preview text never enters a persistent table or job log; neither individual
+embeddings nor response previews are stored. Preview truncation and the existing
+pattern-based redactor limit coverage; arbitrary prose is not certified PII-free.
+Repeated requests retain their frequency. Embeddings are collected once per app,
+then reused for Spark ML KMeans with deterministic seeds and k=2..8, bounded by
+sample/distinct-vector counts. Highest squared-Euclidean silhouette wins; ties use
+the smaller k. Degenerate samples use a single centroid with unknown silhouette.
+
+Reports MERGE on `(workspace_id, name, week)`, where week is the run's UTC Monday;
+manual reruns replace that week's rolling seven-day snapshot. `centroids_json`
+stores numeric centers, the linear-interpolated p95 nearest-center Euclidean
+distance of that week's points, and the endpoint identity. Novel share is the
+fraction of this week's points strictly beyond the **previous week's** saved p95
+when assigned to its centers. A missing preceding week or a changed endpoint means
+unknown, not zero drift. `prompt_drift` fires above the configured threshold with
+at least 50 samples and resolves on a qualifying recovery. Missing data, small
+samples and failed evaluations preserve open incidents. This implements prompt
+drift; the roadmap's broader title does not add response clustering.
+
+`GET /api/apps/{name}/drift` returns the latest 12 workspace-scoped weekly summaries,
+also shown in the GenAI tab. The inventory job's inherited schema SELECT grant
+covers `drift_reports` when the opt-in job first creates it; the monitor does not
+write this table. Before the first run, its missing-table error affects only the
+optional drift block. Operators can curate `drift_reports` in their external Genie
+space if needed; this change does not update that space.
+
+Job webhook forwarding is disabled unless `ALERT_WEBHOOK_URL` is configured. Its
+cursor starts at the current UTC time on each monitor boot, so it does not replay
+history after restarts. Each poll reads local-workspace job rows with `ts > cursor`,
+including both firing and resolved transitions; persisted `muted=true` rows are
+excluded from notification. SQL result chunks are fully read before sending one
+batch with the existing `{"source":"apps-monitor","events":[...]}` payload.
+Only a successful HTTP response advances the cursor to that batch's latest timestamp.
+Failures retry at the next five-minute poll; empty or entirely muted batches leave
+the cursor unchanged. A receiver that accepts a request before a timeout may see
+duplicates on retry. Events committed late with timestamps at or before the cursor,
+and undelivered events preceding a restart, are outside this in-memory cursor's
+delivery guarantee. This polling adds no SQL queries when the webhook is unset.
 
 Phase 2 APIs live in `app/routes_ops.py`. Mute creation uses `POST /api/actions/mute`;
 `GET` lists unexpired windows, including scheduled ones. `DELETE /api/actions/mute/{id}`

@@ -60,8 +60,17 @@ def _run(sql: str, params: dict, ttl: int) -> list[dict]:
     if state != "SUCCEEDED":
         msg = resp.status.error.message if resp.status and resp.status.error else state
         raise RuntimeError(f"query failed: {msg}")
+    if resp.manifest.truncated is True:
+        raise RuntimeError("query result truncated")
     cols = [c.name for c in resp.manifest.schema.columns]
     rows = [dict(zip(cols, r, strict=False)) for r in (resp.result.data_array or [])]
+    chunk = resp.result
+    while isinstance(chunk.next_chunk_index, int):
+        # Never acknowledge only part of a job-alert batch (timestamps can be shared).
+        chunk = w.statement_execution.get_statement_result_chunk_n(
+            resp.statement_id, chunk.next_chunk_index
+        )
+        rows.extend(dict(zip(cols, r, strict=False)) for r in (chunk.data_array or []))
     _cache[key] = (time.time(), rows)
     if len(_cache) > 200:
         _cache.clear()
@@ -95,6 +104,17 @@ def gran(hours: float) -> str:
 
 
 # --------------------------------------------------------------------- queries
+
+JOB_ALERTS = f"""
+  SELECT ts, source, rule, app, severity, message, value, state, muted, workspace_id
+  FROM {t("alert_events")}
+  WHERE workspace_id = :ws AND source = 'job' AND ts > :cursor::timestamp
+  ORDER BY ts, rule, app, state"""
+
+DRIFT_REPORTS = f"""
+  SELECT workspace_id, name, week, k, silhouette, novel_share, samples, computed_at
+  FROM {t("drift_reports")} WHERE workspace_id = :ws AND name = :app
+  ORDER BY week DESC LIMIT 12"""
 
 
 def requests_timeline(hours: float) -> str:

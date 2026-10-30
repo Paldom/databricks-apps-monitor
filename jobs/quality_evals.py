@@ -142,6 +142,11 @@ def redact(text: str) -> str:
     )
 
 
+def normalize_prompt(prompt: str) -> str:
+    """Scrub and collapse whitespace without removing semantic content for embeddings."""
+    return " ".join(redact(prompt).split())
+
+
 def template_hash(prompt: str) -> str:
     text = redact(prompt).lower()
     text = re.sub(r'"[^"\n]*"|\'[^\'\n]*\'', "<value>", text)

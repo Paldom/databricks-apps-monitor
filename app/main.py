@@ -83,6 +83,8 @@ def _workspace_id() -> int:
 
 _last_fleet_refresh = 0.0
 _last_probe_ts = 0.0
+_job_alert_cursor = datetime.now(timezone.utc)
+_last_job_alert_poll = time.monotonic()
 
 
 def _app_info(a) -> dict:
@@ -339,8 +341,29 @@ async def _persist_alerts(events: list[dict]) -> None:
             log.warning("alert persist failed (alert_events table missing yet?)")
 
 
+async def forward_job_alerts() -> None:
+    global _job_alert_cursor, _last_job_alert_poll
+    if not alerts.WEBHOOK or time.monotonic() - _last_job_alert_poll < 300:
+        return
+    # Failed deliveries retry on the same five-minute cadence, never every probe round.
+    _last_job_alert_poll = time.monotonic()
+    try:
+        rows = await q.run(
+            q.JOB_ALERTS,
+            ttl=0,
+            ws=str(await asyncio.to_thread(_workspace_id)),
+            cursor=_job_alert_cursor.isoformat(),
+        )
+        events, _ = alerts.job_webhook_batch(rows, _job_alert_cursor)
+        if events and await asyncio.to_thread(alerts.notify_webhook, events):
+            _, _job_alert_cursor = alerts.job_webhook_batch(rows, _job_alert_cursor, posted=True)
+    except Exception:  # noqa: BLE001 — SQL or delivery failure must leave the cursor intact
+        log.warning("job alert forwarding unavailable", exc_info=True)
+
+
 async def scheduler() -> None:
     while True:
+        await forward_job_alerts()
         try:
             if time.time() - _last_fleet_refresh > FLEET_REFRESH:
                 await refresh_fleet()
@@ -412,6 +435,9 @@ def _status(info: dict, s: dict) -> str:
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    global _job_alert_cursor, _last_job_alert_poll
+    _job_alert_cursor = datetime.now(timezone.utc)
+    _last_job_alert_poll = time.monotonic()
     try:
         ws = str(await asyncio.to_thread(_workspace_id))
         alerts.rehydrate(await q.run(q.OPEN_ALERTS, ttl=0, ws=ws))

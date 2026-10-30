@@ -137,12 +137,40 @@ def active() -> list[dict]:
     return list(_active.values())
 
 
-def notify_webhook(events: list[dict]) -> None:
-    events = [e for e in events if not e.get("muted")]
+def job_webhook_batch(
+    rows: list[dict], cursor: datetime, *, posted: bool = False
+) -> tuple[list[dict], datetime]:
+    """Acknowledge the whole batch only after delivery, including equal timestamps."""
+    events = []
+    latest = cursor
+    for row in rows:
+        ts = datetime.fromisoformat(str(row["ts"]).replace("Z", "+00:00"))
+        ts = ts.replace(tzinfo=ts.tzinfo or timezone.utc)
+        if ts <= cursor or row.get("source") != "job":
+            continue
+        latest = max(latest, ts)
+        if str(row.get("muted")).lower() == "true":
+            continue
+        events.append(
+            {
+                **{k: row[k] for k in ("rule", "app", "severity", "message", "state")},
+                "value": float(row["value"]) if row.get("value") is not None else None,
+                "since": ts.isoformat(),
+                "muted": False,
+                "workspace_id": row["workspace_id"],
+            }
+        )
+    return events, latest if posted and events else cursor
+
+
+def notify_webhook(events: list[dict]) -> bool:
+    events = [e for e in events if str(e.get("muted")).lower() != "true"]
     if not WEBHOOK or not events:
-        return
+        return False
     try:
         r = httpx.post(WEBHOOK, json={"source": "apps-monitor", "events": events}, timeout=10)
         r.raise_for_status()
+        return True
     except Exception as e:  # noqa: BLE001 — alerting must not break monitoring
         log.warning("webhook failed: %s", type(e).__name__)
+        return False

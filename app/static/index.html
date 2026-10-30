@@ -656,7 +656,8 @@ async function loadTab(tab){
     }else if(tab==='adoption'){
       set(renderAnalytics(await get(A('/analytics'))));
     }else if(tab==='genai'){
-      set(renderGenAI(await get(A('/genai'))));
+      const [usage,drift]=await Promise.all([get(A('/genai')),get(A('/drift')).catch(()=>({unavailable:true}))]);
+      set(renderGenAI(usage)+renderDrift(drift));
     }else if(tab==='deps'){
       set(renderDeps((await get(A('/deps'))).deps));
     }else if(tab==='timeline'){
@@ -1126,6 +1127,14 @@ function renderGenAI(d){
     ${genaiHealth(d)}
     <div style="font-size:11px;color:var(--text-faint);margin-top:8px">Agent-level waterfalls live on the Agent tab; token→$ attribution notes on the Cost tab.</div>`;
 }
+function renderDrift(d){
+  const rows=d.reports||[];
+  const note='Optional weekly prompt drift. Short prompts can cluster noisily; embedding calls add cost.';
+  if(!rows.length)return `<div class="sec"><div class="cap">Prompt drift</div><p>${d.unavailable?'Drift data unavailable.':'No drift reports yet.'} ${note}</p></div>`;
+  return `<div class="sec"><div class="cap">Prompt drift</div><p>${note} Novel share compares prompts with the previous week’s p95 distance to its nearest centroid.</p>
+    <table class="data"><tr><th>Week</th><th>Samples</th><th>Clusters</th><th>Silhouette</th><th>Novel share</th></tr>
+    ${rows.map(r=>`<tr><td>${esc(r.week)}</td><td>${fmt(r.samples)}</td><td>${fmt(r.k)}</td><td>${r.silhouette==null?'–':(+r.silhouette).toFixed(3)}</td><td>${r.novel_share==null?'Baseline unavailable':(+r.novel_share*100).toFixed(1)+'%'}${+r.samples<50?' · fewer than 50 samples':''}</td></tr>`).join('')}</table></div>`;
+}
 function genaiHealth(d){
   const tax=(d.error_taxonomy||[]),steps=(d.agent_steps||[]),qual=(d.quality||[]),fb=(d.feedback||[]);
   let html='';
@@ -1161,7 +1170,7 @@ function renderDeps(deps){
       <td style="min-width:120px"><div style="height:8px;background:var(--info);border-radius:4px;width:${Math.max(3,100*r.calls/max)}%"></div></td>
       <td>${fmt(r.avg_ms)}</td><td>${fmt(r.p95_ms)}</td><td>${+r.errors?`<span style="color:var(--crit)">${fmt(r.errors)}</span>`:'0'}</td></tr>`).join('')}</table>`;
 }
-const ALERT_TAB={journey_failed:'uptime',app_down:'uptime',app_stopped:'uptime',slow_p95:'requests',probe_error_rate:'errors',anomaly_traffic:'requests',anomaly_latency:'requests',budget_burn:'cost',cost_spike:'cost',critical_findings:'quality',review_reject:'quality',permission_drift:'ops',auto_stopped:'ops',budget_stopped:'ops',quality_regression:'genai',manual_stop:'ops',manual_start:'ops',app_provisioned:'ops'};
+const ALERT_TAB={prompt_drift:'genai',journey_failed:'uptime',app_down:'uptime',app_stopped:'uptime',slow_p95:'requests',probe_error_rate:'errors',anomaly_traffic:'requests',anomaly_latency:'requests',budget_burn:'cost',cost_spike:'cost',critical_findings:'quality',review_reject:'quality',permission_drift:'ops',auto_stopped:'ops',budget_stopped:'ops',quality_regression:'genai',manual_stop:'ops',manual_start:'ops',app_provisioned:'ops'};
 const EV_ICON={alert:'🔥',deploy:'🚀',anomaly_traffic:'📈',anomaly_latency:'🐢',budget_burn:'💰',auto_stopped:'🛑',budget_stopped:'⛔',quality_regression:'⚖️',app_provisioned:'✨',permission_drift:'🔐'};
 function renderTimeline(d){
   if(!d.events.length&&!d.releases.length)return '<div class="loading">nothing recorded yet — the timeline merges alerts, anomalies, deployments, budget and lifecycle events</div>';

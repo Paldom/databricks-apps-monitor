@@ -1,0 +1,33 @@
+resources:
+  jobs:
+    prompt_drift:
+      name: monitor-prompt-drift
+      description: >-
+        Opt-in weekly prompt embedding and clustering. Paused by default because
+        embedding calls cost money and short prompts cluster noisily.
+      performance_target: STANDARD
+      tags:
+        aidevkit_project: ai-dev-kit
+      schedule:
+        quartz_cron_expression: "0 0 7 ? * MON"
+        timezone_id: UTC
+        pause_status: PAUSED
+      max_concurrent_runs: 1
+      queue:
+        enabled: true
+      environments:
+        - environment_key: default
+          spec:
+            environment_version: "4"
+      tasks:
+        - task_key: drift
+          environment_key: default
+          spark_python_task:
+            python_file: ../jobs/prompt_drift.py
+            parameters:
+              - "--catalog=${var.catalog}"
+              - "--schema=${var.schema}"
+              - "--embedding-endpoint=${var.drift_embedding_endpoint}"
+              - "--samples=${var.drift_samples}"
+              - "--threshold=${var.drift_threshold}"
+              - "--jobs-dir=${workspace.file_path}/jobs"

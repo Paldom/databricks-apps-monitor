@@ -57,6 +57,7 @@ def service(monkeypatch):
         ("gold_views", "jobs"),
         ("cost_rollup", "jobs"),
         ("quality_evals", "jobs"),
+        ("prompt_drift", "jobs"),
         ("housekeeping", "jobs"),
         ("mutes", "app"),
         ("auth", "app"),
