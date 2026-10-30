@@ -133,13 +133,10 @@ class _Redactor:
 
             setattr(span, method, wrap(getattr(span, method)))
 
-    def on_end(self, span: Any) -> None:
+    def on_end(self, span: Any = None) -> None:
         pass
 
-    _on_ending = on_end
-
-    def shutdown(self) -> None:
-        pass
+    _on_ending = shutdown = on_end
 
     def force_flush(self, timeout_millis: int = 30000) -> bool:
         return True
@@ -376,9 +373,8 @@ class _Health:
             ok, error = bool(fn()), None
         except Exception as exc:  # noqa: BLE001 — dependency failure is a health result
             ok, error = False, type(exc).__name__
-        self.pending[name].set_result(
-            {"ok": ok, "error": error, "ms": round((time.perf_counter() - started) * 1000, 1)}
-        )
+        ms = round((time.perf_counter() - started) * 1000, 1)
+        self.pending[name].set_result({"ok": ok, "error": error, "ms": ms})
 
     async def get(self) -> JSONResponse:
         async with self.lock:
@@ -566,27 +562,18 @@ def install(
             return JSONResponse({"error": "too_large"}, status_code=413)
         body = body or {}
         if kind == "rum":
-            sid = request.cookies.get("monitor_session", "")
-            bucket = (
-                sid
-                if _RID.fullmatch(sid)
-                else _hash(request.client.host if request.client else "unknown")
-            )
+            bucket = request.cookies.get("monitor_session", "")
+            if not _RID.fullmatch(bucket):
+                bucket = _hash(request.client.host if request.client else "unknown")
             if not _rum_allow(bucket):
                 return JSONResponse({"error": "rate_limited"}, status_code=429)
             _event("rum", request, event="rum", body=json.dumps(_safe(body)))
         elif kind == "event":
             props = body.get("props", {})
-            props = (
-                {k: v for k, v in props.items() if k not in {"name", "request"}}
-                if isinstance(props, dict)
-                else {}
-            )
-            track(
-                str(body.get("name") or "event"),
-                request,
-                **props,
-            )
+            props = props.copy() if isinstance(props, dict) else {}
+            for reserved in ("name", "request"):
+                props.pop(reserved, None)
+            track(str(body.get("name") or "event"), request, **props)
         else:
             try:
                 rating = max(1, min(5, int(body.get("rating") or 3)))
@@ -616,10 +603,8 @@ def install(
     @api.middleware("http")  # type: ignore[untyped-decorator]
     async def envelope(request: Request, call_next: Any) -> Response:
         global _cold_done
-        rid, cookie = (
-            request.headers.get("x-request-id", ""),
-            request.cookies.get("monitor_session", ""),
-        )
+        rid = request.headers.get("x-request-id", "")
+        cookie = request.cookies.get("monitor_session", "")
         rid = rid if _RID.fullmatch(rid) else uuid.uuid4().hex
         sid = cookie if _RID.fullmatch(cookie) else uuid.uuid4().hex[:12]
         user = _hash(
@@ -659,11 +644,8 @@ def install(
 
             raise
         finally:
-            span.set_attribute(
-                "journey.step",
-                box.get("name")
-                or str(getattr(request.scope.get("route"), "path", request.url.path)),
-            )
+            route = getattr(request.scope.get("route"), "path", request.url.path)
+            span.set_attribute("journey.step", box.get("name") or str(route))
             _step.reset(token)
             _envelope.reset(envelope_token)
             if not _cold_done:
