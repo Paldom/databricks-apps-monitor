@@ -19,7 +19,7 @@ resources:
             client: "2"
             dependencies:
               - databricks-sdk>=0.38.0
-              - httpx    # cost_rollup imports source_scan.emit_alerts for spike alerts
+              - httpx # cost_rollup imports source_scan.emit_alerts for spike alerts
       tasks:
         - task_key: rollup
           environment_key: default

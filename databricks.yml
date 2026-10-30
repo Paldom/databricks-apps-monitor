@@ -62,7 +62,6 @@ variables:
     description: 'JSON list of federated monitors for the workspace selector: [{"name":...,"url":...}]'
     default: "[]"
 
-
 targets:
   dev:
     default: true

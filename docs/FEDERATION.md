@@ -4,11 +4,11 @@
 probes keep their behavior. Set bundle variables in the uncommitted `.env`, then use
 `scripts/deploy.sh monitor -t <target> -p <profile>` when deployment is authorized.
 
-| Mode | Jobs | Monitor |
-| --- | --- | --- |
-| standalone | Local inventory, aggregates and priced costs | Local live probes and UI |
-| feeder | Local jobs also publish to `hub_catalog.af_<workspace_name>__<workspace_id>` | Local probes/journeys stay on; local trace drill-down |
-| hub | Gold discovers feeder schemas and regenerates `v_fleet_*` views; cost job defers pricing to those views | Workspaces page with a workspace filter and workspace column |
+| Mode       | Jobs                                                                                                    | Monitor                                                      |
+| ---------- | ------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| standalone | Local inventory, aggregates and priced costs                                                            | Local live probes and UI                                     |
+| feeder     | Local jobs also publish to `hub_catalog.af_<workspace_name>__<workspace_id>`                            | Local probes/journeys stay on; local trace drill-down        |
+| hub        | Gold discovers feeder schemas and regenerates `v_fleet_*` views; cost job defers pricing to those views | Workspaces page with a workspace filter and workspace column |
 
 Example feeder variables (the hub uses the same catalog and `deployment_mode=hub`):
 
@@ -45,14 +45,14 @@ user hashes and trace payloads stay in each feeder's local schema.
 
 Published objects:
 
-| Object | Write contract / key |
-| --- | --- |
-| `apps_current` | Atomic overwrite with the current inventory scan, including an empty fleet; deleted apps disappear |
-| `apps_history` | MERGE on `(workspace_id, name, snapshot_ts)`; retries are idempotent |
-| `apps_inventory` | View alias of `apps_current` |
-| `agg_app_daily` | MERGE on `(workspace_id, date, name, traffic_kind)`; preserved historical aggregates and HLL sketches |
-| `costs_daily` | DBUs only, plus date/name/workspace metadata; MERGE on `(workspace_id, date, name)` |
-| `alert_events` | Retained MERGE on `(workspace_id, source, rule, app, ts, state)` |
+| Object           | Write contract / key                                                                                  |
+| ---------------- | ----------------------------------------------------------------------------------------------------- |
+| `apps_current`   | Atomic overwrite with the current inventory scan, including an empty fleet; deleted apps disappear    |
+| `apps_history`   | MERGE on `(workspace_id, name, snapshot_ts)`; retries are idempotent                                  |
+| `apps_inventory` | View alias of `apps_current`                                                                          |
+| `agg_app_daily`  | MERGE on `(workspace_id, date, name, traffic_kind)`; preserved historical aggregates and HLL sketches |
+| `costs_daily`    | DBUs only, plus date/name/workspace metadata; MERGE on `(workspace_id, date, name)`                   |
+| `alert_events`   | Retained MERGE on `(workspace_id, source, rule, app, ts, state)`                                      |
 
 All tables have comments and a `workspace_id STRING` column. The hourly hub gold
 job discovers `af_*__<numeric-id>` schemas using `information_schema.tables`, unions

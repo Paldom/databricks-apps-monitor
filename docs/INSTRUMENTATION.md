@@ -19,29 +19,29 @@ The five `example-apps/` are living references: `healthy/` is L2, `agent/` is L3
 Copy [`sdk/monitor_middleware.py`](../sdk/monitor_middleware.py), or pip-install the wheel —
 only the wheel registers the sampler entry point.
 
-| API | What it does |
-| --- | --- |
-| `install(app, *, redact=True, health_checks=None, rum=False, rum_sample=0.1)` | Envelope, log guard, optional span redaction, `GET /monitor/health`, feedback, `POST /monitor/event`, optional RUM |
-| `llm_call(model, *, streaming=False, operation="chat")` | One provider call. `usage.set` stores the **last** token counts; `usage.first_token()` stores time to first token |
-| `track(name, request=None, **props)` | Business event on logger `monitor.events` (non-scalars dropped, 20 props max) |
-| `set_step(name)` | Overrides `journey.step` for this request; otherwise the route template is used |
-| `trace_sql(warehouse_id, *, system="databricks_sql")` | Dependency span. Set `res.statement_id` and `res.rows`. SQL text is never an attribute |
-| `warehouse_ready(warehouse_id)` | Health check: control-plane warehouse GET. `RUNNING`, `STOPPED`, `STARTING`, and `STOPPING` are healthy |
-| `serving_ready(name)` | Health check: control-plane endpoint GET; `state.ready == READY`, including scale-to-zero. A failed update can leave an existing endpoint ready. |
-| `BudgetExceeded` | Raised by `llm_call` when policy returns `{"throttle": "block"}` |
+| API                                                                           | What it does                                                                                                                                     |
+| ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `install(app, *, redact=True, health_checks=None, rum=False, rum_sample=0.1)` | Envelope, log guard, optional span redaction, `GET /monitor/health`, feedback, `POST /monitor/event`, optional RUM                               |
+| `llm_call(model, *, streaming=False, operation="chat")`                       | One provider call. `usage.set` stores the **last** token counts; `usage.first_token()` stores time to first token                                |
+| `track(name, request=None, **props)`                                          | Business event on logger `monitor.events` (non-scalars dropped, 20 props max)                                                                    |
+| `set_step(name)`                                                              | Overrides `journey.step` for this request; otherwise the route template is used                                                                  |
+| `trace_sql(warehouse_id, *, system="databricks_sql")`                         | Dependency span. Set `res.statement_id` and `res.rows`. SQL text is never an attribute                                                           |
+| `warehouse_ready(warehouse_id)`                                               | Health check: control-plane warehouse GET. `RUNNING`, `STOPPED`, `STARTING`, and `STOPPING` are healthy                                          |
+| `serving_ready(name)`                                                         | Health check: control-plane endpoint GET; `state.ready == READY`, including scale-to-zero. A failed update can leave an existing endpoint ready. |
+| `BudgetExceeded`                                                              | Raised by `llm_call` when policy returns `{"throttle": "block"}`                                                                                 |
 
 ### Environment
 
-| Variable | Role |
-| --- | --- |
-| `MONITOR_HASH_KEY` | HMAC-SHA256 key for `user.id_hash`, truncated to 16 hex chars. Unset → plain SHA-256[:16] (v1-compatible). |
-| `MONITOR_TEAM`, `MONITOR_COST_CENTER` | Copied onto the startup log only. |
-| `OTEL_RESOURCE_ATTRIBUTES` | Native way to put team / cost center on **every** signal. The middleware does not read them. |
-| `MONITOR_URL` | Base URL for the token-budget policy. |
-| `DATABRICKS_TOKEN` | Optional bearer for that policy GET. |
-| `MONITOR_REDACT_EXTRA` | Comma-separated span attribute keys to drop, besides the built-ins. |
-| `APP_VERSION` | Stamped on spans and the health body. |
-| `OTEL_TRACES_SAMPLER` | `monitor_parentbased` (wheel only). `OTEL_TRACES_SAMPLER_ARG` is the ratio, default 1.0. |
+| Variable                              | Role                                                                                                       |
+| ------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `MONITOR_HASH_KEY`                    | HMAC-SHA256 key for `user.id_hash`, truncated to 16 hex chars. Unset → plain SHA-256[:16] (v1-compatible). |
+| `MONITOR_TEAM`, `MONITOR_COST_CENTER` | Copied onto the startup log only.                                                                          |
+| `OTEL_RESOURCE_ATTRIBUTES`            | Native way to put team / cost center on **every** signal. The middleware does not read them.               |
+| `MONITOR_URL`                         | Base URL for the token-budget policy.                                                                      |
+| `DATABRICKS_TOKEN`                    | Optional bearer for that policy GET.                                                                       |
+| `MONITOR_REDACT_EXTRA`                | Comma-separated span attribute keys to drop, besides the built-ins.                                        |
+| `APP_VERSION`                         | Stamped on spans and the health body.                                                                      |
+| `OTEL_TRACES_SAMPLER`                 | `monitor_parentbased` (wheel only). `OTEL_TRACES_SAMPLER_ARG` is the ratio, default 1.0.                   |
 
 ### Redaction
 
@@ -197,13 +197,13 @@ app = install(FastAPI())
 
 Every server span now carries the correlation envelope:
 
-| Attribute                 | Purpose                                                                       |
-| ------------------------- | ----------------------------------------------------------------------------- |
-| `app.client_request_id`   | one request across UI ↔ app ↔ gateway ↔ logs                                  |
-| `session.id`              | groups a user journey (cookie-persisted)                                      |
+| Attribute                 | Purpose                                                                                                            |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `app.client_request_id`   | one request across UI ↔ app ↔ gateway ↔ logs                                                                       |
+| `session.id`              | groups a user journey (cookie-persisted)                                                                           |
 | `user.id_hash`            | per-user adoption/errors/cost **without PII** (HMAC-SHA256[:16] when `MONITOR_HASH_KEY` is set, else SHA-256[:16]) |
-| `app.name`, `app.version` | release/regression tracking (set `APP_VERSION` env on deploy)                 |
-| `journey.step`            | route template — powers "top journeys"                                        |
+| `app.name`, `app.version` | release/regression tracking (set `APP_VERSION` env on deploy)                                                      |
+| `journey.step`            | route template — powers "top journeys"                                                                             |
 
 The middleware also gives you two things for free:
 
