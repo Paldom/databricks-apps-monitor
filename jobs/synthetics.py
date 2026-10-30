@@ -92,6 +92,7 @@ def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--catalog", required=True)
     p.add_argument("--schema", required=True)
+    p.add_argument("--jobs-dir", default="")
     args = p.parse_args()
     fq = f"`{args.catalog}`.`{args.schema}`"
 
@@ -167,4 +168,8 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    # serverless script tasks have no __file__; sibling helpers come from --jobs-dir
+    _jobs_dir = next((a.split("=", 1)[1] for a in sys.argv if a.startswith("--jobs-dir=")), "")
+    if _jobs_dir:
+        sys.path.append(_jobs_dir)
     main()

@@ -30,3 +30,4 @@ resources:
             parameters:
               - "--catalog=${var.catalog}"
               - "--schema=${var.schema}"
+              - "--jobs-dir=${workspace.file_path}/jobs"
