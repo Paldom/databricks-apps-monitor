@@ -167,9 +167,13 @@ def views_sql(fq: str) -> list[tuple[str, str]]:
           CREATE OR REPLACE VIEW {fq}.v_dependencies
           COMMENT 'Outbound dependency latency per app: peer host, calls, p95, errors (CLIENT spans)' AS
           SELECT service_name AS name,
-                 coalesce(variant_get(attributes, '$["server.address"]', 'string'),
+                 coalesce(nullif(concat_ws('/',
+                            coalesce(variant_get(attributes, '$["db.system.name"]', 'string'),
+                                     variant_get(attributes, '$["db.system"]', 'string')),
+                            variant_get(attributes, '$["db.namespace"]', 'string')), ''),
+                          variant_get(attributes, '$["server.address"]', 'string'),
                           variant_get(attributes, '$["net.peer.name"]', 'string'),
-                          variant_get(attributes, '$["db.system"]', 'string'), name) AS dependency,
+                          name) AS dependency,
                  date, count(*) AS calls, round(avg({DUR}), 1) AS avg_ms,
                  round(approx_percentile({DUR}, 0.95), 1) AS p95_ms,
                  sum(CASE WHEN {ERR} THEN 1 ELSE 0 END) AS errors
@@ -582,7 +586,7 @@ def check_token_budgets(spark, fq: str, workspace_id: str, cat: str, sch: str) -
 def main() -> None:
     from federation import arguments, destination, hub_views, publish
     from product_sql import CONFIG_COLUMNS, FUNNEL_DDL, MODEL_PRICES_DDL, product_views_sql
-    from schema_utils import ensure_columns, workspace_column
+    from schema_utils import ensure_columns, ensure_costs_table, workspace_column
 
     p = argparse.ArgumentParser()
     p.add_argument("--catalog", required=True)
@@ -609,15 +613,13 @@ def main() -> None:
     spark.sql(MODEL_PRICES_DDL.format(fq=fq))
     spark.sql(FUNNEL_DDL.format(fq=fq))
     # Gold may run before the daily cost job on a fresh installation.
-    from cost_rollup import DDL as COST_DDL
     from llm_review import DDL as REVIEW_DDL
 
     from source_scan import DDL_SCANS
 
-    spark.sql(COST_DDL.format(fq=fq))
+    ensure_costs_table(spark, fq, str(w.get_workspace_id()))
     spark.sql(DDL_SCANS.format(fq=fq))
     spark.sql(REVIEW_DDL.format(fq=fq))
-    ensure_columns(spark, f"{fq}.costs_daily", {"idle_usd": "DOUBLE"})
     materialize_aggregates(spark, fq, str(w.get_workspace_id()))
     monitor = next((a for a in apps if a.name == args.monitor_app), None)
     if monitor and monitor.service_principal_client_id:

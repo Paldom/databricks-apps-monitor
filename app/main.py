@@ -1020,7 +1020,8 @@ async def autostop_policy(body: dict, actor: str = Depends(require_admin)) -> di
     ]
     if dry:
         return {"targets": targets, "mode": mode, "idle_hours": idle_hours, "dry_run": True}
-    applied = []
+    ws = str(await asyncio.to_thread(_workspace_id))
+    applied, failed = [], []
     for n in targets:
         try:
             await q.run_dml(
@@ -1031,10 +1032,15 @@ async def autostop_policy(body: dict, actor: str = Depends(require_admin)) -> di
                 auto_stop=mode,
                 idle=idle_hours,
                 who=actor,
+                ws=ws,
+                capacity_path="",
             )
             applied.append(n)
         except Exception as e:  # noqa: BLE001
             log.warning("autostop policy failed for %s: %s", n, e)
+            failed.append(n)
+    if failed:
+        raise HTTPException(502, {"applied": applied, "failed": failed, "mode": mode})
     return {"applied": applied, "mode": mode, "idle_hours": idle_hours}
 
 

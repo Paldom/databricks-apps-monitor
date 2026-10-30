@@ -89,8 +89,11 @@ def health_sql(fq: str) -> str:
 
 
 def check_telemetry(spark, fq: str, ws: str, catalog: str, schema: str) -> None:
+    from schema_utils import ensure_costs_table
+
     from source_scan import emit_alerts
 
+    ensure_costs_table(spark, fq, ws)
     spark.sql(health_sql(fq))
     spark.sql(
         f"""MERGE INTO {fq}.telemetry_health_samples t USING (

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
 import json
@@ -13,6 +14,7 @@ import types
 from importlib.metadata import entry_points
 from types import SimpleNamespace
 from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 from fastapi import FastAPI
@@ -53,8 +55,134 @@ _RID_RE = re.compile(r"^[A-Za-z0-9._:-]{1,64}$")
 @pytest.fixture(autouse=True)
 def _isolate_monitor_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("MONITOR_URL", raising=False)
+    monkeypatch.delenv("DATABRICKS_TOKEN", raising=False)
+    monkeypatch.setitem(sys.modules, "databricks.sdk", None)
+    monkeypatch.setattr(mm, "_auth_warned", False)
     mm._policy_cache.clear()
     mm._rum_buckets.clear()
+
+
+def test_policy_refresh_uses_renewable_sdk_auth(monkeypatch, caplog):
+    sdk = MagicMock()
+    auth = sdk.WorkspaceClient.return_value.config.authenticate
+    auth.side_effect = [{"Authorization": "Bearer first"}, {"Authorization": "Bearer renewed"}]
+    monkeypatch.setitem(sys.modules, "databricks.sdk", sdk)
+    monkeypatch.setenv("DATABRICKS_TOKEN", "fallback")
+    assert mm._policy() == {}
+    sdk.WorkspaceClient.assert_not_called()
+    monkeypatch.setenv("MONITOR_URL", "https://monitor")
+    monkeypatch.setenv("DATABRICKS_CLIENT_ID", "app-sp")
+    monkeypatch.setenv("DATABRICKS_CLIENT_SECRET", "app-secret")
+    now = [100.0]
+    monkeypatch.setattr(mm.time, "monotonic", lambda: now[0])
+    fetch = MagicMock(return_value=_Resp(b'{"throttle":"block"}'))
+    monkeypatch.setattr(mm, "urlopen", fetch)
+    for _ in range(2):
+        with pytest.raises(BudgetExceeded), llm_call("blocked"):
+            pytest.fail("provider should not run")
+    assert auth.call_count == 1
+    now[0] += 60
+    assert mm._policy() == {"throttle": "block"}
+    assert [c.args[0].get_header("Authorization") for c in fetch.call_args_list] == [
+        "Bearer first",
+        "Bearer renewed",
+    ]
+    assert not caplog.records
+
+
+@pytest.mark.parametrize("failure", ["missing_sdk", "client", "authenticate", "empty"])
+@pytest.mark.parametrize("token", [None, "fallback-token"])
+def test_policy_auth_fallback_and_warning_once(monkeypatch, caplog, failure, token):
+    if failure != "missing_sdk":
+        sdk = MagicMock()
+        monkeypatch.setitem(sys.modules, "databricks.sdk", sdk)
+        if failure == "client":
+            sdk.WorkspaceClient.side_effect = RuntimeError("sensitive config")
+        elif failure == "authenticate":
+            sdk.WorkspaceClient.return_value.config.authenticate.side_effect = RuntimeError(
+                "secret"
+            )
+        else:
+            sdk.WorkspaceClient.return_value.config.authenticate.return_value = {}
+    if token:
+        monkeypatch.setenv("DATABRICKS_TOKEN", token)
+    monkeypatch.setenv("MONITOR_URL", "https://monitor")
+    fetch = MagicMock(side_effect=TimeoutError())
+    monkeypatch.setattr(mm, "urlopen", fetch)
+    for _ in range(2):
+        mm._policy_cache.clear()
+        with llm_call("fail-open"):
+            pass
+    expected = f"Bearer {token}" if token else None
+    assert all(c.args[0].get_header("Authorization") == expected for c in fetch.call_args_list)
+    warnings = [r for r in caplog.records if r.name == "monitor.policy"]
+    assert len(warnings) == (0 if token else 1)
+    assert "sensitive config" not in caplog.text and "secret" not in caplog.text
+
+
+def test_llm_request_envelope_isolated_across_workers_and_failures(span_exporter):
+    import httpx2
+
+    async def run():
+        app = install(FastAPI())
+        barrier = asyncio.Event()
+        arrived = []
+
+        @app.get("/{name}")
+        async def handler(name: str):
+            arrived.append(name)
+            if len(arrived) == 2:
+                barrier.set()
+            await barrier.wait()
+
+            def provider():
+                with llm_call(name):
+                    if name == "synthetic":
+                        raise RuntimeError("failed provider")
+
+            await asyncio.to_thread(provider)
+            return {"ok": True}
+
+        async def wrapped(scope, receive, send):
+            try:
+                await app(scope, receive, send)
+            finally:
+                assert mm._envelope.get({}) == {}
+
+        async with httpx2.AsyncClient(
+            transport=httpx2.ASGITransport(wrapped, raise_app_exceptions=False),
+            base_url="http://app",
+        ) as client:
+            responses = await asyncio.gather(
+                *[
+                    client.get(
+                        f"/{name}",
+                        headers={
+                            "x-request-id": f"rid-{name}",
+                            "cookie": f"monitor_session=sid-{name}",
+                            "x-forwarded-user": f"{name}@example.com",
+                            "x-monitor-synthetic": kind,
+                        },
+                    )
+                    for name, kind in (("synthetic", "journey"), ("human", "unrecognized"))
+                ]
+            )
+        assert [r.status_code for r in responses] == [500, 200]
+
+    asyncio.run(run())
+    for name, kind in (("synthetic", "journey"), ("human", "real")):
+        attrs = _named(span_exporter, f"chat {name}")[0].attributes
+        assert attrs["app.client_request_id"] == f"rid-{name}"
+        assert attrs["session.id"] == f"sid-{name}"
+        assert attrs["user.id_hash"] == _hash(f"{name}@example.com")
+        assert attrs["traffic.kind"] == kind
+        assert attrs["monitor.llm.billable"] is True
+    with llm_call("outside-request"):
+        pass
+    attrs = _named(span_exporter, "chat outside-request")[0].attributes
+    assert (
+        not {"app.client_request_id", "session.id", "user.id_hash", "traffic.kind"} & attrs.keys()
+    )
 
 
 def _with_span(app: Any) -> Any:

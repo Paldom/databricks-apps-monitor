@@ -290,14 +290,15 @@ def save_findings(spark, fq: str, ws: str, app: str, ts: datetime, findings: lis
 
 def guardrail_alerts(
     spark, fq: str, ws: str, app: str, ts: datetime, rate: float, drift_share: float
-) -> tuple[list, bool]:
+) -> tuple[list, bool | None]:
+    """Classification is unknown without samples; False still permits local PII evaluation."""
     samples = spark.sql(
         f"""SELECT trace_id, template_hash, classified FROM {fq}.guardrail_samples
           WHERE workspace_id = :ws AND name = :app AND date = :day""",
         args={"ws": ws, "app": app, "day": ts.date()},
     ).collect()
     if not samples:
-        return [], False
+        return [], None
     known = {
         r["template_hash"]
         for r in spark.sql(
@@ -497,7 +498,8 @@ def main() -> None:
                 spark, fq, ws, a.name, ts, args.finding_rate, args.drift_share
             )
             alerts.extend(daily_alerts)
-            pii_evaluated.add(a.name)
+            if fully_classified is not None:
+                pii_evaluated.add(a.name)
             if fully_classified:
                 policy_evaluated.add(a.name)
         rows.append(

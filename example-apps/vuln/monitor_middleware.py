@@ -59,6 +59,8 @@ _SCRUBS = (
 _PATTERNS = [(re.compile(p, re.I), replacement) for p, replacement in _SCRUBS]
 _REDACT, _cold_done, _startup_logged = False, False, False
 _step: ContextVar[dict[str, str]] = ContextVar("monitor_step")
+_envelope: ContextVar[dict[str, str]] = ContextVar("monitor_envelope")
+_auth_warned, _auth_lock = False, threading.Lock()
 _policy_cache: dict[str, tuple[float, dict[str, Any]]] = {}
 _rum_buckets: dict[str, tuple[float, float]] = {}
 _token_hist: Any = None
@@ -144,14 +146,11 @@ class _Redactor:
 
 
 def _hash(value: str | None) -> str:
-    key = os.getenv("MONITOR_HASH_KEY")
-    return (
-        hmac.new(key.encode(), value.encode(), hashlib.sha256).hexdigest()[:16]
-        if key and value
-        else hashlib.sha256(value.encode()).hexdigest()[:16]
-        if value
-        else "anon"
-    )
+    if not value:
+        return "anon"
+    if key := os.getenv("MONITOR_HASH_KEY"):
+        return hmac.new(key.encode(), value.encode(), hashlib.sha256).hexdigest()[:16]
+    return hashlib.sha256(value.encode()).hexdigest()[:16]
 
 
 def _fingerprint(exc: BaseException) -> str:
@@ -197,24 +196,34 @@ class _NoRedirect(HTTPRedirectHandler):
 urlopen = build_opener(_NoRedirect()).open
 
 
+def _policy_headers() -> dict[str, str]:
+    global _auth_warned
+    try:
+        sdk = importlib.import_module("databricks.sdk")
+        headers: dict[str, str] = sdk.WorkspaceClient().config.authenticate()
+        if any(k.lower() == "authorization" and v for k, v in headers.items()):
+            return headers
+    except Exception:  # noqa: BLE001 — optional SDK or credentials may be unavailable
+        pass
+    if token := os.getenv("DATABRICKS_TOKEN"):
+        return {"Authorization": f"Bearer {token}"}
+    with _auth_lock:
+        if not _auth_warned:
+            _auth_warned = True
+            logging.getLogger("monitor.policy").warning("Policy auth unavailable; failing open")
+    return {}
+
+
 def _policy() -> dict[str, Any]:
-    base = os.getenv("MONITOR_URL", "").rstrip("/")
-    if not base:
+    if not (base := os.getenv("MONITOR_URL", "").rstrip("/")):
         return {}
-    url = f"{base}/api/policy/{quote(APP_NAME, safe='')}"
-    now = time.monotonic()
+    url, now = f"{base}/api/policy/{quote(APP_NAME, safe='')}", time.monotonic()
     if url not in _policy_cache or now - _policy_cache[url][0] >= 60:
         try:
-            headers = (
-                {"Authorization": f"Bearer {os.environ['DATABRICKS_TOKEN']}"}
-                if os.getenv("DATABRICKS_TOKEN")
-                else {}
-            )
-            with urlopen(UrlRequest(url, headers=headers), timeout=2) as response:
+            with urlopen(UrlRequest(url, headers=_policy_headers()), timeout=2) as response:
                 raw = response.read(8193)
                 data = json.loads(raw) if len(raw) <= 8192 else {}
-            if not isinstance(data, dict):
-                data = {}
+            data = data if isinstance(data, dict) else {}
         except Exception:  # noqa: BLE001 — a monitor failure must not block the app
             data = {}
         _policy_cache.clear()
@@ -289,6 +298,7 @@ def llm_call(model: str, *, streaming: bool = False, operation: str = "chat") ->
     if _policy().get("throttle") == "block":
         raise BudgetExceeded(APP_NAME)
     attrs: dict[str, str | bool] = {
+        **_envelope.get({}),
         "gen_ai.request.model": model,
         "gen_ai.operation.name": operation,
     }
@@ -618,16 +628,18 @@ def install(
         request.state.monitor = {"rid": rid, "sid": sid, "user": user}
         span = trace.get_current_span()
         box: dict[str, str] = {}
-        span.set_attribute("app.client_request_id", rid)
-        span.set_attribute("session.id", sid)
-        span.set_attribute("user.id_hash", user)
+        kind = request.headers.get("x-monitor-synthetic", "real")
+        attrs = {
+            "app.client_request_id": rid,
+            "session.id": sid,
+            "user.id_hash": user,
+            "traffic.kind": kind if kind in {"probe", "journey", "capacity"} else "real",
+        }
+        span.set_attributes(attrs)
         span.set_attribute("app.name", APP_NAME)
         span.set_attribute("app.version", APP_VERSION)
-        kind = request.headers.get("x-monitor-synthetic", "real")
-        span.set_attribute(
-            "traffic.kind", kind if kind in {"probe", "journey", "capacity"} else "real"
-        )
         token = _step.set(box)
+        envelope_token = _envelope.set(attrs)
         try:
             response: Response = await call_next(request)
         except Exception as exc:
@@ -653,6 +665,7 @@ def install(
                 or str(getattr(request.scope.get("route"), "path", request.url.path)),
             )
             _step.reset(token)
+            _envelope.reset(envelope_token)
             if not _cold_done:
                 _cold_done = True
                 span.set_attribute(

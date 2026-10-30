@@ -32,16 +32,17 @@ only the wheel registers the sampler entry point.
 
 ### Environment
 
-| Variable                              | Role                                                                                                       |
-| ------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `MONITOR_HASH_KEY`                    | HMAC-SHA256 key for `user.id_hash`, truncated to 16 hex chars. Unset → plain SHA-256[:16] (v1-compatible). |
-| `MONITOR_TEAM`, `MONITOR_COST_CENTER` | Copied onto the startup log only.                                                                          |
-| `OTEL_RESOURCE_ATTRIBUTES`            | Native way to put team / cost center on **every** signal. The middleware does not read them.               |
-| `MONITOR_URL`                         | Base URL for the token-budget policy.                                                                      |
-| `DATABRICKS_TOKEN`                    | Optional bearer for that policy GET.                                                                       |
-| `MONITOR_REDACT_EXTRA`                | Comma-separated span attribute keys to drop, besides the built-ins.                                        |
-| `APP_VERSION`                         | Stamped on spans and the health body.                                                                      |
-| `OTEL_TRACES_SAMPLER`                 | `monitor_parentbased` (wheel only). `OTEL_TRACES_SAMPLER_ARG` is the ratio, default 1.0.                   |
+| Variable                                           | Role                                                                                                       |
+| -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `MONITOR_HASH_KEY`                                 | HMAC-SHA256 key for `user.id_hash`, truncated to 16 hex chars. Unset → plain SHA-256[:16] (v1-compatible). |
+| `MONITOR_TEAM`, `MONITOR_COST_CENTER`              | Copied onto the startup log only.                                                                          |
+| `OTEL_RESOURCE_ATTRIBUTES`                         | Native way to put team / cost center on **every** signal. The middleware does not read them.               |
+| `MONITOR_URL`                                      | Base URL for the token-budget policy.                                                                      |
+| `DATABRICKS_CLIENT_ID`, `DATABRICKS_CLIENT_SECRET` | Apps-injected credentials discovered lazily by the Databricks SDK for policy GETs.                         |
+| `DATABRICKS_TOKEN`                                 | Fallback bearer for policy GETs when SDK authentication is unavailable.                                    |
+| `MONITOR_REDACT_EXTRA`                             | Comma-separated span attribute keys to drop, besides the built-ins.                                        |
+| `APP_VERSION`                                      | Stamped on spans and the health body.                                                                      |
+| `OTEL_TRACES_SAMPLER`                              | `monitor_parentbased` (wheel only). `OTEL_TRACES_SAMPLER_ARG` is the ratio, default 1.0.                   |
 
 ### Redaction
 
@@ -91,6 +92,10 @@ check retains its worker until it returns; subsequent probes do not spawn duplic
 after `first_token()`, and `error.type` in
 `{rate_limit, timeout, policy, schema, server, <exception class name>}`. Histogram
 `gen_ai.client.token.usage` is a metric, so trace sampling does not drop it.
+Each billable span also copies `app.client_request_id`, `session.id`, `user.id_hash`
+and `traffic.kind` from the middleware's request context. The context is isolated
+between concurrent requests and propagates into `asyncio.to_thread` provider calls;
+calls outside a request have no request identity attached.
 
 `traffic.kind` is `x-monitor-synthetic` when it is `probe`, `journey`, or `capacity`;
 otherwise `real`. `set_step("submit")` overrides `journey.step`; if you never call it,
@@ -111,13 +116,20 @@ control, not a fleet-wide quota or proof of session identity. The browser keeps
 queries out of page/source paths, captures request IDs from same-origin fetch
 responses, and sends periodic batches. LCP, session-window CLS and interaction-based
 INP are lightweight estimates from the browser's available performance entries.
+The log envelope contains a JSON-encoded `body` with an `events` batch. The gold
+RUM view unwraps it and counts the SDK's `type="view"` alongside legacy page-view
+names. Each event's `rid` takes precedence over the ingestion request ID.
 
 If `MONITOR_URL` is set, each `llm_call` GETs `{MONITOR_URL}/api/policy/{APP_NAME}`
 (60s cache, 2s timeout, **fail-open**) and raises `BudgetExceeded` on
 `{"throttle": "block"}`. Failed refreshes clear a stale block. Policy responses are
 bounded to 8 KB; redirects are refused so bearer tokens cannot follow a login or a
-different host. Missing `DATABRICKS_TOKEN` means no authorization header. The check
-is synchronous; run blocking provider calls in a worker, as the agent demo does.
+different host. Each refresh obtains renewable headers through a lazy
+`databricks.sdk.WorkspaceClient().config.authenticate()` call, using the Apps-injected
+client credentials. If the SDK or its authentication is unavailable, it falls back
+to `DATABRICKS_TOKEN`. With neither source, it warns once per process and keeps
+fail-open behavior. The SDK is optional for copy-in users. The check is synchronous;
+run blocking provider calls in a worker, as the agent demo does.
 
 `POST /monitor/feedback` over 4 KB is accepted as an empty payload (`{"ok": true}`) so
 the widget does not break. `POST /monitor/event` over 4 KB returns **413**.

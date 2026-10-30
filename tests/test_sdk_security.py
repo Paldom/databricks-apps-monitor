@@ -30,6 +30,7 @@ import monitor_middleware as mm
 def isolate(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("MONITOR_URL", raising=False)
     monkeypatch.delenv("MONITOR_HASH_KEY", raising=False)
+    monkeypatch.setitem(sys.modules, "databricks.sdk", None)
     mm._policy_cache.clear()
     mm._rum_buckets.clear()
 

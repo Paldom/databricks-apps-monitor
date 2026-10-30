@@ -268,12 +268,14 @@ def rum_view_sql(fq: str, ws: str, logger: str) -> str:
           OR get_json_object(cast(body AS STRING), '$.event') = 'rum')
           AND coalesce(variant_get(attributes, '$["traffic.kind"]', 'string'),
                        get_json_object(cast(body AS STRING), '$.traffic_kind'), 'real') = 'real'
+      ), payloads AS (
+        SELECT *, coalesce(get_json_object(body, '$.body'), body) AS payload FROM logs
       ), events AS (
         SELECT date, name, get_json_object(body, '$.rid') AS envelope_rid,
           get_json_object(body, '$.route') AS envelope_route,
-          explode(coalesce(from_json(get_json_object(body, '$.events'), 'ARRAY<{event_type}>'),
-                           array(from_json(body, '{event_type}')))) AS event
-        FROM logs
+          explode(coalesce(from_json(get_json_object(payload, '$.events'), 'ARRAY<{event_type}>'),
+                           array(from_json(payload, '{event_type}')))) AS event
+        FROM payloads
       ), parsed AS (
         SELECT date, name, coalesce(event.rid, envelope_rid) AS request_id,
           coalesce(event.type, event.name) AS kind,
@@ -294,7 +296,7 @@ def rum_view_sql(fq: str, ws: str, logger: str) -> str:
       ), correlated AS (
         SELECT p.*, b.trace_id FROM parsed p LEFT JOIN backend b USING (name, request_id)
       ) SELECT '{ws}' AS workspace_id, date, name, route, fingerprint,
-        count_if(kind IN ('page_view', 'pageview', 'route_view')) AS page_views,
+        count_if(kind IN ('view', 'page_view', 'pageview', 'route_view')) AS page_views,
         approx_percentile(CASE WHEN upper(metric) = 'LCP' THEN value END, 0.75) AS p75_lcp,
         approx_percentile(CASE WHEN upper(metric) = 'CLS' THEN value END, 0.75) AS p75_cls,
         approx_percentile(CASE WHEN upper(metric) = 'INP' THEN value END, 0.75) AS p75_inp,

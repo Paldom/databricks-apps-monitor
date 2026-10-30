@@ -369,13 +369,19 @@ _GENAI = "coalesce(variant_get(attributes, '$[\"gen_ai.request.model\"]', 'strin
 # LLM error taxonomy: rate-limit vs content-policy vs timeout vs schema vs other
 GENAI_ERRORS = f"""
   SELECT CASE
+      WHEN error_type = 'rate_limit' THEN 'rate_limit'
+      WHEN error_type = 'timeout' THEN 'timeout'
+      WHEN error_type = 'policy' THEN 'content_policy'
+      WHEN error_type = 'schema' THEN 'schema_validation'
+      WHEN error_type = 'server' THEN 'server'
       WHEN msg RLIKE '429|rate.?limit' THEN 'rate_limit'
       WHEN msg RLIKE 'timeout|timed.?out|deadline' THEN 'timeout'
       WHEN msg RLIKE 'content.?(filter|policy)|moderation|blocked' THEN 'content_policy'
       WHEN msg RLIKE 'schema|validation|json|pydantic' THEN 'schema_validation'
       ELSE 'other' END AS category,
     count(*) AS errors, max(time) AS last_seen, any_value(substr(msg, 1, 200)) AS sample
-  FROM (SELECT time, lower(coalesce(status.message,
+  FROM (SELECT time, lower(variant_get(attributes, '$["error.type"]', 'string')) AS error_type,
+                lower(coalesce(nullif(status.message, ''),
                 variant_get(attributes, '$["error.type"]', 'string'), '')) AS msg
         FROM {t("otel_spans")}
         WHERE service_name = :app AND {_GENAI} AND {IS_ERROR}
@@ -569,6 +575,7 @@ REACH_SLO = f"""
          sum(b.good) / nullif(sum(b.total), 0) AS attainment, sum(b.total) AS observations
   FROM {t("slo_specs")} s LEFT JOIN {t("sli_5m")} b
     ON s.name = b.name AND s.slo = b.slo AND s.workspace_id = b.workspace_id
+   AND b.revision = s.revision
    AND b.bucket >= timestampadd(DAY, -s.window_days, current_timestamp())
   WHERE (:app = '' OR s.name = :app)
   GROUP BY s.name, s.slo, s.sli, s.target, s.window_days"""

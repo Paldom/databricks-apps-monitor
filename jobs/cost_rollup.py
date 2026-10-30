@@ -15,15 +15,6 @@ import argparse
 
 from pyspark.sql import SparkSession
 
-DDL = """
-CREATE TABLE IF NOT EXISTS {fq}.costs_daily (
-  date DATE, name STRING,
-  dbus DOUBLE, dbu_usd DOUBLE,
-  ai_calls LONG, ai_input_tokens LONG, ai_output_tokens LONG, ai_usd DOUBLE,
-  computed_at TIMESTAMP, workspace_id STRING, ai_tokens_gateway LONG, idle_usd DOUBLE
-) COMMENT 'Per-app daily cost: exact app-compute DBUs/$ from billing + AI tokens from telemetry'"""
-
-
 AI_DDL = """
 CREATE TABLE IF NOT EXISTS {fq}.costs_ai_daily (
   date DATE, name STRING, model STRING, ai_calls LONG, in_t LONG, out_t LONG,
@@ -98,7 +89,7 @@ def idle_cost_sql(fq: str, days: int) -> str:
 def main() -> None:
     from federation import arguments, destination, publish
     from product_sql import MODEL_PRICES_DDL
-    from schema_utils import ensure_columns, workspace_column
+    from schema_utils import ensure_costs_table
 
     p = argparse.ArgumentParser()
     p.add_argument("--catalog", required=True)
@@ -111,7 +102,6 @@ def main() -> None:
 
     spark = SparkSession.builder.getOrCreate()
     spark.conf.set("spark.sql.session.timeZone", "UTC")
-    spark.sql(DDL.format(fq=fq))
     from databricks.sdk import WorkspaceClient
 
     client = WorkspaceClient()
@@ -120,8 +110,7 @@ def main() -> None:
         return  # Account-wide pricing is exposed by the hub gold views.
     ws_id = str(int(client.get_workspace_id()))
     print(f"workspace_id={ws_id}, window={args.days}d")
-    ensure_columns(spark, f"{fq}.costs_daily", {"ai_tokens_gateway": "LONG", "idle_usd": "DOUBLE"})
-    workspace_column(spark, f"{fq}.costs_daily", ws_id)
+    ensure_costs_table(spark, fq, ws_id)
     spark.sql(AI_DDL.format(fq=fq))
     spark.sql(MODEL_PRICES_DDL.format(fq=fq))
 

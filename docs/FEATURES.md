@@ -77,7 +77,7 @@ exhaustion. The SLI uses the shared real-traffic and HTTP semantic-convention he
 availability rejects HTTP 4xx/5xx or OTel ERROR; latency compares duration to the
 configured threshold. Unknown windows do not resolve previously firing burn alerts.
 Changed measurement definitions get a new revision, so old buckets cannot contaminate
-them. Multiple failing specs share one alert per app/rule with all spec names listed.
+Ops, status-page or MCP attainment. Multiple failing specs share one alert per app/rule with all spec names listed.
 Sampling affects these span-derived SLIs: use ratio 1 for SLO apps. A histogram-based
 SLI is deferred until the SDK metric contract is available.
 
@@ -128,6 +128,9 @@ from an operator-supplied contract price. `ai_tokens_gateway` is a
 reconciliation signal, not an input to span token totals. Unmapped gateway requesters
 are `(untagged)`, never requester emails. Existing costs are corrected within the
 configured rollup window (30 days by default).
+Gold, cost rollup and telemetry health share the `costs_daily` migration: they add
+`workspace_id`, `ai_tokens_gateway` and `idle_usd` before dependent queries, and
+backfill the owning workspace for legacy rows. Their schedules can run independently.
 
 Token totals prefer `gen_ai.client.token.usage` histogram sums per app/model/day/token
 direction, using billable spans only when that metric direction is absent. This avoids
@@ -168,7 +171,8 @@ in Governance. It is implemented once, as tested pure Python, over SQL component
 `monitor.events` accepts the roadmap `event=custom`, `name`, `event_id`, `sid`, `user`,
 `rid` contract. Log attributes and a matching server envelope supply traffic kind and
 app version (unknown versions stay explicit). `monitor.rum` accepts single events or
-an `events` batch: type=page_view/pageview/route_view, type=error/js_error/unhandledrejection
+an `events` batch, including the SDK's JSON-encoded `body` envelope:
+type=view/page_view/pageview/route_view, type=error/js_error/unhandledrejection
 with message/stack, and name/metric=LCP/CLS/INP with value; route/path identifies the route.
 Each RUM event's `rid` joins the server request envelope for a backend trace link; the
 batch ingestion request is not presented as the failing request. Route query strings
@@ -186,6 +190,9 @@ policy alerts. Alerts are owned/scoped separately: `guardrail_pii_rate`,
 `guardrail_policy_rate`, `prompt_template_drift`, and existing `quality_regression`.
 Finding-rate threshold defaults to 10% per app/day (`--finding-rate`); drift share is
 configurable with `--drift-share`. Initial template baselines do not alert.
+Days without samples leave PII, template-drift and policy incidents open. Local PII
+and template checks can resolve on observed samples even if classification failed;
+policy recovery requires all daily samples to have been classified.
 
 The hourly gold job evaluates today's UTC tokens and the previous completed UTC hour.
 It warns at 80% of budget or if today's usage plus the last hour would reach budget,
@@ -194,7 +201,11 @@ and blocks at 100%; zero/unset budgets produce `none`. Owned alerts are
 `{"throttle":"none|warn|block"}` from memory and **never issues SQL**. Fleet refresh loads
 all policies in one query. Missing/invalid entries, cache older than five minutes,
 policy computation older than three hours, and previous-day policies fail open to `none`.
-SDK enforcement is on the separate SDK v2 branch; the monitor does not stop model calls itself.
+SDK `llm_call` enforces this policy with renewable Databricks SDK authentication,
+falling back to `DATABRICKS_TOKEN` and warning once if neither is available.
+Billable spans copy the request/session/user/traffic envelope from middleware context
+so synthetic calls are excluded from real-traffic GenAI views and consumers retain identity.
+The GenAI taxonomy maps canonical `error.type` values before legacy message matching.
 
 For the existing externally managed Genie space, curate these additional gold objects:
 `v_unit_economics`, `v_events`, `v_funnels`, `v_cohorts`, `v_leaderboard`, `v_rum_daily`.
@@ -206,6 +217,11 @@ OTel error status as errors. The basic template opts into `http/dup` and parent-
 ratio sampling at `1.0`. Synthetic exclusion beyond legacy healthz names requires the
 SDK's `traffic.kind` attribute. Capacity fallback paths can be set through the admin
 app-config API; absolute URLs and the proxy `/healthz` path are rejected.
+Bulk auto-stop binds the workspace and preserves existing capacity paths through
+`app_config`. Failed writes return HTTP 502 with the applied and failed app names.
+
+`v_dependencies` identifies SQL calls by `db.system.name` and `db.namespace`, keeping
+warehouses separate; legacy `db.system`, network peer and span-name fallbacks remain.
 
 New aggregate/model tables and alert/cost writes carry `workspace_id`. Idempotent
 migrations add missing service columns, including `alert_events.muted` and
