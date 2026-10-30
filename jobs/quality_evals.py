@@ -188,10 +188,16 @@ def main() -> None:
         spark.createDataFrame(
             rows, schema=spark.table(f"{args.catalog}.{args.schema}.monitor_quality").schema
         ).write.mode("append").saveAsTable(f"{args.catalog}.{args.schema}.monitor_quality")
-    if alerts:
-        from source_scan import emit_alerts
+    from source_scan import emit_alerts
 
-        emit_alerts(spark, args.catalog, args.schema, alerts)
+    emit_alerts(
+        spark,
+        args.catalog,
+        args.schema,
+        alerts,
+        owned_rules=("quality_regression",),
+        evaluated_apps={r["name"] for r in rows},
+    )
     print(f"done: {len(rows)} apps evaluated, {len(alerts)} quality alerts")
 
 

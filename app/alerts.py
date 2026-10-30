@@ -22,6 +22,12 @@ WEBHOOK = os.environ.get("ALERT_WEBHOOK_URL", "")
 _active: dict[str, dict] = {}  # key = rule:app
 
 
+def rehydrate(rows: list[dict]) -> None:
+    """Restore durable monitor state before the first probe round."""
+    _active.clear()
+    _active.update({f"{r['rule']}:{r['app']}": {**r, "since": str(r["since"])} for r in rows})
+
+
 def evaluate(fleet: dict, probes: dict, summary_fn, synth: dict | None = None) -> list[dict]:
     """Return state-transition events; keeps the active-alert set internally."""
     now = datetime.now(timezone.utc).isoformat()
@@ -34,7 +40,7 @@ def evaluate(fleet: dict, probes: dict, summary_fn, synth: dict | None = None) -
             "severity": severity,
             "message": message,
             "value": value,
-            "since": now,
+            "since": _active.get(f"{rule}:{app}", {}).get("since", now),
         }
 
     for name, info in fleet.items():
@@ -89,6 +95,10 @@ def evaluate(fleet: dict, probes: dict, summary_fn, synth: dict | None = None) -
             )
 
     events = []
+    # A restarted process needs two probes before it can clear a consecutive-failure alert.
+    for key, a in _active.items():
+        if a["app"] not in fleet or (a["rule"] == "app_down" and len(probes.get(a["app"], ())) < 2):
+            desired.setdefault(key, a)
     for key, a in desired.items():
         if key not in _active:
             events.append({**a, "state": "firing"})

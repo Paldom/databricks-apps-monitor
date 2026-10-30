@@ -33,9 +33,13 @@ def vg(key: str, typ: str = "string") -> str:
 
 DUR_MS = "(end_time_unix_nano - start_time_unix_nano) / 1e6"
 IS_SERVER = "kind ILIKE '%server%'"
-IS_ERROR = "coalesce(status.code, '') ILIKE '%error%'"
-# monitor probes hit /healthz every minute — synthetic traffic stays out of request metrics
-NOT_PROBE = "name NOT ILIKE '%healthz%'"
+HTTP_STATUS = f"coalesce({vg('http.response.status_code', 'int')}, {vg('http.status_code', 'int')})"
+HTTP_ROUTE = f"coalesce({vg('http.route')}, name)"
+IS_ERROR = f"(coalesce({HTTP_STATUS} >= 400, false) OR coalesce(status.code, '') ILIKE '%error%')"
+TRAFFIC_KIND = (
+    f"coalesce({vg('traffic.kind')}, CASE WHEN name ILIKE '%healthz%' THEN 'probe' ELSE 'real' END)"
+)
+NOT_PROBE = f"{TRAFFIC_KIND} = 'real'"
 IS_ERROR_LOG = "upper(coalesce(severity_text, '')) IN ('ERROR', 'FATAL', 'CRITICAL')"
 
 _cache: dict = {}
@@ -106,7 +110,7 @@ def requests_timeline(hours: float) -> str:
 
 
 ROUTES = f"""
-  SELECT coalesce({vg("http.route")}, name) AS route,
+  SELECT {HTTP_ROUTE} AS route,
          count(*) AS requests,
          sum(CASE WHEN {IS_ERROR} THEN 1 ELSE 0 END) AS errors,
          round(avg({DUR_MS}), 1) AS avg_ms,
@@ -117,7 +121,7 @@ ROUTES = f"""
 
 ERROR_SPANS = f"""
   SELECT time, trace_id, name, round({DUR_MS}, 1) AS duration_ms,
-         status.message AS message, {vg("http.status_code", "int")} AS http_status
+         status.message AS message, {HTTP_STATUS} AS http_status
   FROM {t("otel_spans")}
   WHERE service_name = :app AND {IS_ERROR} AND time >= :since::timestamp
   ORDER BY time DESC LIMIT 50"""
@@ -137,7 +141,7 @@ LOGS_TAIL = f"""
 TRACES = f"""
   SELECT time, trace_id, name, round({DUR_MS}, 1) AS duration_ms,
          CASE WHEN {IS_ERROR} THEN 'error' ELSE 'ok' END AS status,
-         coalesce({vg("http.route")}, '') AS route
+         {HTTP_ROUTE} AS route
   FROM {t("otel_spans")}
   WHERE service_name = :app AND {IS_SERVER} AND {NOT_PROBE} AND time >= :since::timestamp
   ORDER BY time DESC LIMIT 50"""
@@ -164,7 +168,7 @@ OTEL_BY_MLFLOW = f"""
   SELECT s.service_name, s.name, s.kind, s.trace_id, s.span_id,
          coalesce(s.parent_span_id, '') AS parent_span_id,
          s.start_time_unix_nano, s.end_time_unix_nano,
-         CASE WHEN {IS_ERROR.replace("status.code", "s.status.code")} THEN 'error' ELSE 'ok' END AS status,
+         CASE WHEN {IS_ERROR.replace("status.code", "s.status.code").replace("variant_get(attributes", "variant_get(s.attributes")} THEN 'error' ELSE 'ok' END AS status,
          replace(coalesce(variant_get(s.attributes, '$["mlflow.spanType"]', 'string'), ''), '"', '') AS span_type,
          variant_get(s.attributes, '$["gen_ai.usage.input_tokens"]', 'long') AS in_tokens,
          variant_get(s.attributes, '$["gen_ai.usage.output_tokens"]', 'long') AS out_tokens
@@ -216,7 +220,7 @@ REVIEW_LATEST = f"""
   FROM {t("v_review_latest")} WHERE name = :app"""
 
 COST_APP = f"""
-  SELECT date, dbus, dbu_usd, ai_calls, ai_input_tokens, ai_output_tokens, ai_usd
+  SELECT date, dbus, dbu_usd, ai_calls, ai_input_tokens, ai_output_tokens, ai_usd, ai_tokens_gateway
   FROM {t("costs_daily")} WHERE name = :app AND date >= current_date() - 30
   ORDER BY date"""
 
@@ -315,7 +319,7 @@ AUDIT_FLEET = f"""
   ORDER BY event_time DESC LIMIT 100"""
 
 CONFIG_GET = f"""
-  SELECT tags_json, budget_usd_month, auto_stop, idle_hours, updated_at, updated_by
+  SELECT tags_json, budget_usd_month, auto_stop, idle_hours, updated_at, updated_by, capacity_path
   FROM {t("app_config")} WHERE name = :app"""
 
 CONFIGS_ALL = f"SELECT name, tags_json, budget_usd_month, auto_stop FROM {t('app_config')}"
@@ -323,9 +327,15 @@ CONFIGS_ALL = f"SELECT name, tags_json, budget_usd_month, auto_stop FROM {t('app
 CONFIG_UPSERT = f"""
   MERGE INTO {t("app_config")} tgt USING (SELECT :app AS name) s ON tgt.name = s.name
   WHEN MATCHED THEN UPDATE SET tags_json = :tags, budget_usd_month = :budget::double,
-       auto_stop = :auto_stop, idle_hours = :idle::int, updated_at = current_timestamp(), updated_by = :who
-  WHEN NOT MATCHED THEN INSERT (name, tags_json, budget_usd_month, auto_stop, idle_hours, updated_at, updated_by)
-  VALUES (:app, :tags, :budget::double, :auto_stop, :idle::int, current_timestamp(), :who)"""
+       auto_stop = :auto_stop, idle_hours = :idle::int, updated_at = current_timestamp(), updated_by = :who,
+       capacity_path = coalesce(nullif(:capacity_path, ''), tgt.capacity_path), workspace_id = :ws
+  WHEN NOT MATCHED THEN INSERT (name, tags_json, budget_usd_month, auto_stop, idle_hours, updated_at, updated_by, capacity_path, workspace_id)
+  VALUES (:app, :tags, :budget::double, :auto_stop, :idle::int, current_timestamp(), :who,
+          coalesce(nullif(:capacity_path, ''), '/'), :ws)"""
+
+OPEN_JOB_ALERTS = f"""
+  SELECT rule, app, severity, message, value, ts AS since FROM {t("v_alerts_open")}
+  WHERE source = 'job' AND workspace_id = :ws"""
 
 MTD_BY_APP = f"""
   SELECT name, round(sum(dbu_usd), 2) AS mtd_usd
@@ -338,7 +348,8 @@ CHARGEBACK = f"""
   FROM {t("v_chargeback")} GROUP BY 1, 2 ORDER BY mtd_usd DESC NULLS LAST"""
 
 USAGE_FLEET = f"""
-  SELECT name, sum(requests) AS requests_7d, max(users) AS peak_dau, sum(sessions) AS sessions_7d
+  SELECT name, sum(requests) AS requests_7d, max(users) AS peak_dau,
+         hll_sketch_estimate(hll_union_agg(sessions_hll)) AS sessions_7d
   FROM {t("v_usage_daily")} WHERE date >= current_date() - 7 GROUP BY name"""
 
 TELEMETRY_ACTIVE = f"""
@@ -367,7 +378,7 @@ GENAI_ERRORS = f"""
   FROM (SELECT time, lower(coalesce(status.message,
                 variant_get(attributes, '$["error.type"]', 'string'), '')) AS msg
         FROM {t("otel_spans")}
-        WHERE service_name = :app AND {_GENAI} AND coalesce(status.code, '') ILIKE '%error%'
+        WHERE service_name = :app AND {_GENAI} AND {IS_ERROR}
           AND time >= now() - INTERVAL 7 DAYS)
   GROUP BY 1 ORDER BY errors DESC"""
 
@@ -409,8 +420,16 @@ QUALITY_APP = f"""
   FROM {t("monitor_quality")} WHERE name = :app ORDER BY ts DESC LIMIT 20"""
 
 INSERT_ALERT = f"""
-  INSERT INTO {t("alert_events")} VALUES
-  (:ts::timestamp, :rule, :app, :severity, :message, :value::double, :state, 'monitor')"""
+  INSERT INTO {t("alert_events")}
+  (ts, rule, app, severity, message, value, state, source, workspace_id, muted, incident_id) VALUES
+  (:ts::timestamp, :rule, :app, :severity, :message, :value::double, :state, 'monitor', :ws, false, NULL)"""
+
+OPEN_ALERTS = f"""
+  SELECT rule, app, severity, message, value, ts AS since FROM (
+    SELECT *, row_number() OVER (PARTITION BY rule, app ORDER BY ts DESC, state DESC) AS rn
+    FROM {t("alert_events")}
+    WHERE source = 'monitor' AND (workspace_id = :ws OR workspace_id IS NULL))
+  WHERE rn = 1 AND state = 'firing'"""
 
 RECENT_ALERTS = f"""
   SELECT ts, rule, app, severity, message, value, state, source

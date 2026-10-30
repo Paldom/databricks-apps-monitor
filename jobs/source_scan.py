@@ -414,26 +414,76 @@ def quality_score(findings: list[dict], metrics: dict) -> int:
     return max(0, min(100, score))
 
 
-def emit_alerts(spark, catalog: str, schema: str, rows: list[dict]) -> None:
-    """Append firing alert rows (jobs emit deep-signal alerts; the monitor emits probe ones)."""
-    if not rows:
-        return
+def emit_alerts(
+    spark,
+    catalog: str,
+    schema: str,
+    rows: list[dict],
+    *,
+    owned_rules: tuple[str, ...],
+    evaluated_apps: set[str] | None = None,
+) -> None:
+    """Persist transitions; partial scans can only clear apps they actually evaluated."""
+    from alert_state import resolving_keys
+    from schema_utils import ensure_columns, workspace_column
+
     try:
+        tbl = f"`{catalog}`.`{schema}`.alert_events"
+        ws = str(WorkspaceClient().get_workspace_id())
+        ensure_columns(spark, tbl, {"muted": "BOOLEAN", "incident_id": "STRING"})
+        workspace_column(spark, tbl, ws)
+        rules = ", ".join(f":rule{i}" for i in range(len(owned_rules)))
+        if not owned_rules or any(r["rule"] not in owned_rules for r in rows):
+            raise ValueError("every emitted rule must be owned by this caller")
+        open_keys = {
+            (r["rule"], r["app"])
+            for r in spark.sql(
+                f"""SELECT rule, app FROM (
+                  SELECT rule, app, state, row_number() OVER (
+                    PARTITION BY rule, app ORDER BY ts DESC, state DESC) rn
+                  FROM {tbl} WHERE source = 'job' AND workspace_id = :ws
+                    AND rule IN ({rules}))
+                WHERE rn = 1 AND state = 'firing'""",
+                args={"ws": ws, **{f"rule{i}": rule for i, rule in enumerate(owned_rules)}},
+            ).collect()
+        }
+        rows = list({(r["rule"], r["app"]): r for r in rows}.values())
+        current = {(r["rule"], r["app"]) for r in rows}
+        transitions = [
+            r
+            for r in rows
+            if (r["rule"], r["app"]) not in open_keys or r.get("state") == "resolved"
+        ]
+        transitions += [
+            {
+                "rule": rule,
+                "app": app,
+                "severity": "info",
+                "message": "condition cleared",
+                "value": 0.0,
+                "state": "resolved",
+            }
+            for rule, app in sorted(resolving_keys(open_keys, current, owned_rules, evaluated_apps))
+        ]
+        now = datetime.now(timezone.utc)
         full = [
             {
-                "ts": datetime.now(timezone.utc),
-                "state": "firing",
-                "source": "job",
                 **r,
+                "ts": now,
+                "state": r.get("state", "firing"),
+                "source": "job",
                 "value": float(r.get("value") or 0),
+                "workspace_id": ws,
+                "muted": False,
+                "incident_id": None,
             }
-            for r in rows
+            for r in transitions
         ]
-        tbl = f"{catalog}.{schema}.alert_events"
-        spark.createDataFrame(full, schema=spark.table(tbl).schema).write.mode(
-            "append"
-        ).saveAsTable(tbl)
-        print(f"emitted {len(rows)} alerts")
+        if full:
+            spark.createDataFrame(full, schema=spark.table(tbl).schema).write.mode(
+                "append"
+            ).saveAsTable(tbl)
+        print(f"emitted {len(full)} alert transitions")
     except Exception as e:  # noqa: BLE001 — alerting must not fail the job
         print(f"alert emit failed: {e}")
 
@@ -590,6 +640,8 @@ def main() -> None:
             for r in scan_rows
             if r["findings_critical"] > 0
         ],
+        owned_rules=("critical_findings",),
+        evaluated_apps={r["name"] for r in scan_rows},
     )
 
     spark.sql(f"""CREATE OR REPLACE VIEW {fq}.v_scan_latest
@@ -604,4 +656,10 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    import sys
+
+    # Serverless script tasks do not set __file__; the bundle provides the helper path.
+    _jobs_dir = next((a.split("=", 1)[1] for a in sys.argv if a.startswith("--jobs-dir=")), "")
+    if _jobs_dir:
+        sys.path.append(_jobs_dir)
     main()

@@ -1,5 +1,39 @@
 resources:
   jobs:
+    telemetry_retention:
+      name: monitor-telemetry-retention
+      description: Preserve gold summaries before deleting expired raw telemetry.
+      performance_target: STANDARD
+      tags:
+        aidevkit_project: ai-dev-kit
+      schedule:
+        quartz_cron_expression: "0 45 5 * * ?"
+        timezone_id: UTC
+        pause_status: UNPAUSED
+      max_concurrent_runs: 1
+      queue:
+        enabled: true
+      environments:
+        - environment_key: default
+          spec:
+            client: "2"
+      tasks:
+        # Gold lives in the inventory job; a task dependency cannot cross jobs directly.
+        - task_key: gold
+          run_job_task:
+            job_id: ${resources.jobs.inventory_scan.id}
+        - task_key: housekeeping
+          depends_on:
+            - task_key: gold
+          run_if: ALL_SUCCESS
+          environment_key: default
+          spark_python_task:
+            python_file: ../jobs/housekeeping.py
+            parameters:
+              - "--catalog=${var.catalog}"
+              - "--schema=${var.schema}"
+              - "--days=90"
+
     app_stopper:
       name: monitor-app-stopper
       description: >-

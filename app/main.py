@@ -26,6 +26,7 @@ from databricks.sdk import WorkspaceClient
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse
 from opentelemetry import metrics, trace
+from synthetic import capacity_path, capacity_url, synthetic_headers
 
 import alerts
 import mlflow_traces as mt
@@ -122,6 +123,7 @@ async def refresh_fleet() -> None:
 
 
 async def _probe_one(client: httpx.AsyncClient, name: str, url: str, headers: dict) -> None:
+    headers = synthetic_headers(headers, "probe")
     code, placeholder, ttfb = -1, False, None
     start = time.perf_counter()
     try:
@@ -188,6 +190,7 @@ async def run_journeys() -> None:
     async with httpx.AsyncClient(
         timeout=defaults.get("timeout_s", 20), follow_redirects=False
     ) as client:
+        headers = synthetic_headers(headers, "journey")
         for name, info in list(fleet.items()):
             url = info.get("url")
             jn = by_app.get(name) or ({**auto, "app": name} if auto else None)
@@ -265,6 +268,7 @@ async def _persist_alerts(events: list[dict]) -> None:
                 message=e["message"],
                 value=e["value"] if e["value"] is not None else 0,
                 state=e["state"],
+                ws=str(await asyncio.to_thread(_workspace_id)),
             )
         except Exception:  # noqa: BLE001 — table appears after first inventory run
             log.warning("alert persist failed (alert_events table missing yet?)")
@@ -336,6 +340,11 @@ def _status(info: dict, s: dict) -> str:
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    try:
+        ws = str(await asyncio.to_thread(_workspace_id))
+        alerts.rehydrate(await q.run(q.OPEN_ALERTS, ttl=0, ws=ws))
+    except Exception:  # noqa: BLE001 — the table may not exist on the first deployment
+        log.warning("alert rehydrate skipped", exc_info=True)
     task = asyncio.create_task(scheduler())
     yield
     task.cancel()
@@ -642,6 +651,10 @@ async def api_ops(name: str) -> dict:
 
 @app.post("/api/apps/{name}/config")
 async def api_config_save(name: str, body: dict, actor: str = Depends(require_admin)) -> dict:
+    try:
+        path = capacity_path(body.get("capacity_path"))
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
     auto_stop = body.get("auto_stop", "none")
     if auto_stop not in ("none", "idle", "night", "budget"):
         raise HTTPException(400, "auto_stop must be none|idle|night|budget")
@@ -657,6 +670,8 @@ async def api_config_save(name: str, body: dict, actor: str = Depends(require_ad
             auto_stop=auto_stop,
             idle=int(body.get("idle_hours") or 24),
             who=actor,
+            capacity_path=path if "capacity_path" in body else "",
+            ws=str(await asyncio.to_thread(_workspace_id)),
         )
     except Exception as e:
         raise HTTPException(502, f"config save failed (has the inventory job run?): {e}") from e
@@ -673,10 +688,16 @@ async def api_capacity(name: str, actor: str = Depends(require_admin)) -> dict:
     if _capacity_lock.locked():
         raise HTTPException(409, "a capacity run is already in progress")
     async with _capacity_lock:
-        headers = await asyncio.to_thread(w.config.authenticate)
-        url = info["url"] + "/healthz"
+        headers = synthetic_headers(await asyncio.to_thread(w.config.authenticate), "capacity")
+        try:
+            config = await q.run(q.CONFIG_GET, app=name)
+        except Exception:  # noqa: BLE001 — capacity probing also works before gold creates config
+            log.warning("capacity config unavailable; using default fallback")
+            config = []
+        fallback = config[0].get("capacity_path") if config else None
         levels, results = [1, 2, 4, 8], []
         async with httpx.AsyncClient(timeout=15.0, follow_redirects=False) as client:
+            url = await capacity_url(client, info["url"], fallback, headers)
             for c in levels:
                 lat: list[float] = []
                 errs = 0
@@ -688,7 +709,7 @@ async def api_capacity(name: str, actor: str = Depends(require_admin)) -> dict:
                         t0 = time.perf_counter()
                         try:
                             r = await client.get(url, headers=headers)
-                            if r.status_code >= 500:
+                            if not 200 <= r.status_code < 300:
                                 errs += 1
                             else:
                                 lat.append((time.perf_counter() - t0) * 1000)
@@ -720,6 +741,7 @@ async def api_capacity(name: str, actor: str = Depends(require_admin)) -> dict:
             default=results[0],
         )
         capacity[name] = {
+            "path": url.removeprefix(info["url"].rstrip("/")),
             "ts": time.time(),
             "levels": results,
             "max_healthy_qps": knee["qps"],
@@ -904,7 +926,14 @@ async def api_alerts() -> dict:
         recent = await q.run(q.RECENT_ALERTS, ttl=60)
     except Exception:  # noqa: BLE001 — table appears after first inventory run
         pass
-    return {"active": alerts.active(), "recent": recent}
+    job_alerts = []
+    try:
+        job_alerts = await q.run(
+            q.OPEN_JOB_ALERTS, ttl=60, ws=str(await asyncio.to_thread(_workspace_id))
+        )
+    except Exception:  # noqa: BLE001 — gold views may not exist on first deployment
+        log.warning("open job alerts unavailable")
+    return {"active": alerts.active() + job_alerts, "recent": recent}
 
 
 @app.get("/api/apps/{name}/synthetics")

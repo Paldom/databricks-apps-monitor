@@ -107,13 +107,15 @@ def main() -> None:
     print("deployment started")
 
     # 4) governance tags → app_config (chargeback picks them up immediately)
-    tags_sql = json.dumps(tags).replace("'", "''")  # escape for SQL string literal
-    spark.sql(f"""
+    spark.sql(
+        f"""
       MERGE INTO {fq}.app_config t
-      USING (SELECT '{name}' AS name) s ON t.name = s.name
-      WHEN MATCHED THEN UPDATE SET tags_json = '{tags_sql}', updated_at = current_timestamp(), updated_by = 'provision-job'
-      WHEN NOT MATCHED THEN INSERT (name, tags_json, budget_usd_month, auto_stop, idle_hours, updated_at, updated_by)
-      VALUES ('{name}', '{tags_sql}', NULL, 'none', 24, current_timestamp(), 'provision-job')""")
+      USING (SELECT :app AS name) s ON t.name = s.name
+      WHEN MATCHED THEN UPDATE SET tags_json = :tags, updated_at = current_timestamp(), updated_by = 'provision-job', workspace_id = :ws
+      WHEN NOT MATCHED THEN INSERT (name, tags_json, budget_usd_month, auto_stop, idle_hours, updated_at, updated_by, workspace_id)
+      VALUES (:app, :tags, NULL, 'none', 24, current_timestamp(), 'provision-job', :ws)""",
+        args={"app": name, "tags": json.dumps(tags), "ws": str(w.get_workspace_id())},
+    )
 
     from source_scan import emit_alerts
 
@@ -124,12 +126,14 @@ def main() -> None:
         [
             {
                 "rule": "app_provisioned",
+                "state": "resolved",
                 "app": name,
                 "severity": "info",
                 "message": f"provisioned by monitoring toolkit · team={args.team} cc={args.cost_center} env={args.env}",
                 "value": 0,
             }
         ],
+        owned_rules=("app_provisioned",),
     )
     print(f"done — app '{name}' provisioned, tagged, telemetry-wired")
 

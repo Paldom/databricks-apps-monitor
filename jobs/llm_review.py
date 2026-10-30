@@ -225,6 +225,8 @@ def main() -> None:
             for r in rows
             if r["verdict"] == "reject"
         ],
+        owned_rules=("review_reject",),
+        evaluated_apps={r["name"] for r in rows},
     )
     spark.sql(f"""CREATE OR REPLACE VIEW {fq}.v_review_latest
         COMMENT 'Latest code review per app' AS

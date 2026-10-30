@@ -29,6 +29,7 @@ resources:
               - "--catalog=${var.catalog}"
               - "--schema=${var.schema}"
               - "--monitor-app=apps-monitor"
+              - "--jobs-dir=${workspace.file_path}/jobs"
         - task_key: source_scan
           depends_on:
             - task_key: scan

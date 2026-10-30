@@ -15,7 +15,11 @@ env:
   # prod apps switch to head sampling, e.g.:
   #   OTEL_TRACES_SAMPLER: parentbased_traceidratio · OTEL_TRACES_SAMPLER_ARG: "0.2"
   - name: OTEL_TRACES_SAMPLER
-    value: always_on
+    value: parentbased_traceidratio
+  - name: OTEL_TRACES_SAMPLER_ARG
+    value: "1.0"
+  - name: OTEL_SEMCONV_STABILITY_OPT_IN
+    value: http/dup
   # cross-app trace stitching: outbound httpx/requests inject W3C traceparent
   - name: OTEL_PROPAGATORS
     value: tracecontext

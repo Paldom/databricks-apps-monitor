@@ -25,7 +25,14 @@ PROTECTED = {"apps-monitor"}
 def emit(spark, cat, sch, rows):
     from source_scan import emit_alerts
 
-    emit_alerts(spark, cat, sch, rows)
+    # Actions are completed audit events, not ongoing conditions.
+    emit_alerts(
+        spark,
+        cat,
+        sch,
+        [{**r, "state": "resolved"} for r in rows],
+        owned_rules=("manual_stop", "manual_start", "auto_stopped", "budget_stopped"),
+    )
 
 
 def main() -> None:
@@ -75,14 +82,17 @@ def main() -> None:
         ).collect()
     }
     if not cfg:
+        emit(spark, args.catalog, args.schema, [])
         print("no apps opted into auto-stop")
         return
+
+    from telemetry_sql import NOT_PROBE, SERVER
 
     last_seen = {
         r["name"]: r["last_ts"]
         for r in spark.sql(f"""
         SELECT service_name AS name, max(time) AS last_ts FROM {fq}.otel_spans
-        WHERE kind ILIKE '%server%' AND name NOT ILIKE '%healthz%'
+        WHERE {SERVER} AND {NOT_PROBE}
           AND time >= now() - INTERVAL 7 DAYS GROUP BY 1""").collect()
     }
 
@@ -135,8 +145,7 @@ def main() -> None:
                 print(f"stopped {a.name}: {reason}")
             except Exception as e:  # noqa: BLE001
                 print(f"stop {a.name} failed: {e}")
-    if actions:
-        emit(spark, args.catalog, args.schema, actions)
+    emit(spark, args.catalog, args.schema, actions)
     print(f"done: {len(actions)} apps stopped")
 
 

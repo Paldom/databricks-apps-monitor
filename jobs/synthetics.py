@@ -46,7 +46,8 @@ def browser_smoke(url: str, headers: dict) -> dict:
         with sync_playwright() as pw:
             browser = pw.chromium.launch(headless=True)
             page = browser.new_context(
-                extra_http_headers=headers, viewport={"width": 1280, "height": 800}
+                extra_http_headers={**headers, "x-monitor-synthetic": "journey"},
+                viewport={"width": 1280, "height": 800},
             ).new_page()
             resp = page.goto(url, timeout=30_000)
             page.wait_for_timeout(1500)

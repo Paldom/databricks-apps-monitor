@@ -20,7 +20,8 @@ from pyspark.sql import SparkSession
 ALERT_DDL = """
 CREATE TABLE IF NOT EXISTS {fq}.alert_events (
   ts TIMESTAMP, rule STRING, app STRING, severity STRING,
-  message STRING, value DOUBLE, state STRING, source STRING
+  message STRING, value DOUBLE, state STRING, source STRING,
+  workspace_id STRING, muted BOOLEAN, incident_id STRING
 ) COMMENT 'Alert state transitions from the monitor app (probe rules) and jobs (deep rules)'
 """
 
@@ -41,15 +42,16 @@ CREATE TABLE IF NOT EXISTS {fq}.apps_inventory (
   sp_client_id STRING,
   source_code_path STRING,
   deployment_id STRING,
-  resources_json STRING
+  resources_json STRING, workspace_id STRING
 ) COMMENT 'Hourly snapshot of every Databricks App in the workspace (monitor-inventory-scan job)'
 """
 
 
-def app_row(a, ts: datetime) -> dict:
+def app_row(a, ts: datetime, workspace_id: str) -> dict:
     dep = a.active_deployment
     return {
         "snapshot_ts": ts,
+        "workspace_id": workspace_id,
         "name": a.name,
         "app_id": getattr(a, "id", None) or getattr(a, "service_principal_client_id", None),
         "url": a.url,
@@ -82,9 +84,11 @@ def grant_monitor_access(
     for stmt in (
         f"GRANT USE CATALOG ON CATALOG `{catalog}` TO `{sp}`",
         f"GRANT USE SCHEMA ON SCHEMA `{catalog}`.`{schema}` TO `{sp}`",
+        # Inherited SELECT also covers agg_app_*, agg_genai_daily, costs_ai_daily and v_alerts_open.
         f"GRANT SELECT ON SCHEMA `{catalog}`.`{schema}` TO `{sp}`",
         # the monitor appends its probe-rule alert transitions itself
         f"GRANT MODIFY ON TABLE `{catalog}`.`{schema}`.`alert_events` TO `{sp}`",
+        f"GRANT MODIFY ON TABLE `{catalog}`.`{schema}`.`app_config` TO `{sp}`",
     ):
         try:
             spark.sql(stmt)
@@ -137,9 +141,12 @@ def grant_monitor_access(
 
 
 def main() -> None:
+    from schema_utils import ensure_columns, workspace_column
+
     p = argparse.ArgumentParser()
     p.add_argument("--catalog", required=True)
     p.add_argument("--schema", required=True)
+    p.add_argument("--jobs-dir", default="")
     p.add_argument("--monitor-app", default="apps-monitor")
     args = p.parse_args()
     fq = f"`{args.catalog}`.`{args.schema}`"
@@ -153,7 +160,11 @@ def main() -> None:
 
     spark.sql(INVENTORY_DDL.format(fq=fq))
     spark.sql(ALERT_DDL.format(fq=fq))
-    rows = [app_row(a, ts) for a in apps]
+    ensure_columns(spark, f"{fq}.alert_events", {"muted": "BOOLEAN", "incident_id": "STRING"})
+    workspace_column(spark, f"{fq}.alert_events", str(w.get_workspace_id()))
+    ws = str(w.get_workspace_id())
+    workspace_column(spark, f"{fq}.apps_inventory", ws)
+    rows = [app_row(a, ts, ws) for a in apps]
     if rows:
         df = spark.createDataFrame(
             rows, schema=spark.table(f"{args.catalog}.{args.schema}.apps_inventory").schema
@@ -174,4 +185,10 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    import sys
+
+    # Serverless script tasks do not set __file__; the bundle provides the helper path.
+    _jobs_dir = next((a.split("=", 1)[1] for a in sys.argv if a.startswith("--jobs-dir=")), "")
+    if _jobs_dir:
+        sys.path.append(_jobs_dir)
     main()
