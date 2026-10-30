@@ -6,6 +6,7 @@ import asyncio
 import importlib.util
 import sqlite3
 import sys
+from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -233,7 +234,7 @@ def test_schema_migration_adds_only_missing_columns(service):
 
 
 def test_billable_selection_handles_parents_legacy_and_explicit_false(service):
-    with sqlite3.connect(":memory:") as db:
+    with closing(sqlite3.connect(":memory:")) as db:
         db.execute(
             "CREATE TABLE spans (id TEXT, app_has_markers BOOL, billable BOOL, span_type TEXT, trace_has_llm BOOL)"
         )

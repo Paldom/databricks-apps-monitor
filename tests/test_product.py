@@ -6,6 +6,7 @@ import asyncio
 import json
 import sqlite3
 import sys
+from contextlib import closing
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
@@ -363,7 +364,7 @@ def test_effective_price_query_reprices_and_preserves_unknown_totals(service):
     sql = service.cost_rollup.priced_ai_sql("main", 30).replace(
         "current_date() - 30", "'2026-01-01'"
     )
-    with sqlite3.connect(":memory:") as db:
+    with closing(sqlite3.connect(":memory:")) as db:
         db.row_factory = sqlite3.Row
         db.create_aggregate("count_if", 1, CountIf)
         db.execute(

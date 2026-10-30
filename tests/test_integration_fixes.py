@@ -8,6 +8,7 @@ import logging
 import re
 import sqlite3
 import sys
+from contextlib import closing
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -79,7 +80,7 @@ def test_rum_view_decodes_sdk_body_and_counts_views(service, caplog, shape):
     sql = service.product_sql.rum_view_sql("cat.sch", "123", "logger")
     # Execute the view's normalization expression; Spark's typed explode is tested by shape.
     payload_cte = re.search(r"payloads AS \((.*?)\), events AS", sql, re.S).group(1)
-    with sqlite3.connect(":memory:") as db:
+    with closing(sqlite3.connect(":memory:")) as db:
         db.create_function("get_json_object", 2, json_value)
         db.execute("CREATE TABLE logs (body TEXT)")
         db.execute("INSERT INTO logs VALUES (?)", (body,))
@@ -178,7 +179,7 @@ def test_reach_slo_attainment_uses_current_revision_and_preserves_unknown(servic
     q = service.queries
     sql = q.REACH_SLO.replace(q.t("slo_specs"), "slo_specs").replace(q.t("sli_5m"), "sli_5m")
     sql = sql.replace("timestampadd(DAY, -s.window_days, current_timestamp())", "'2026-01-01'")
-    with sqlite3.connect(":memory:") as db:
+    with closing(sqlite3.connect(":memory:")) as db:
         db.execute(
             "CREATE TABLE slo_specs (name, slo, sli, target, window_days, workspace_id, revision)"
         )
@@ -264,7 +265,7 @@ def test_guardrail_resolution_requires_daily_evidence(service, monkeypatch, clas
 def test_dependency_identity_preserves_database_and_warehouse(service, attrs, expected):
     sql = dict(service.gold_views.views_sql("cat.sch"))["v_dependencies"]
     expression = re.search(r"(coalesce\(.*?) AS dependency", sql, re.S).group(1)
-    with sqlite3.connect(":memory:") as db:
+    with closing(sqlite3.connect(":memory:")) as db:
         db.create_function("variant_get", 3, json_value)
         db.create_function(
             "concat_ws", -1, lambda sep, *items: sep.join(i for i in items if i is not None)
@@ -303,7 +304,7 @@ def test_genai_taxonomy_prefers_canonical_error_types(service, error_type, messa
         .replace("now() - INTERVAL 7 DAYS", "'2026-01-01'")
     )
     sql = sql.replace("any_value(", "min(")
-    with sqlite3.connect(":memory:") as db:
+    with closing(sqlite3.connect(":memory:")) as db:
         db.create_function("variant_get", 3, json_value)
         db.create_function("regexp", 2, lambda pattern, text: bool(re.search(pattern, text)))
         db.execute(
