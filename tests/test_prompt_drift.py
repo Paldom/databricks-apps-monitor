@@ -3,7 +3,7 @@
 import asyncio
 import json
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -13,7 +13,7 @@ from test_product import product_app, request
 from test_service_correctness import ROOT
 from test_service_correctness import service as service
 
-NOW = datetime(2026, 10, 26, 7, tzinfo=timezone.utc)
+NOW = datetime(2026, 10, 26, 7, tzinfo=UTC)
 
 
 def test_novel_share_uses_previous_centers_and_strict_cutoff(service):

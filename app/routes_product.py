@@ -7,7 +7,7 @@ import json
 import logging
 import math
 import time
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -76,14 +76,14 @@ async def refresh_policies(workspace_id: str) -> None:
     global _policies, _policies_at
     try:
         rows = await q.run(q.POLICIES, ttl=0, ws=workspace_id)
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         fresh = {}
         for row in rows:
             try:
                 stamp = datetime.fromisoformat(str(row["policy_updated_at"]).replace("Z", "+00:00"))
             except (KeyError, ValueError, TypeError):
                 continue
-            age = (now - stamp.replace(tzinfo=stamp.tzinfo or timezone.utc)).total_seconds()
+            age = (now - stamp.replace(tzinfo=stamp.tzinfo or UTC)).total_seconds()
             if (
                 0 <= age < 3 * 3600
                 and stamp.date() == now.date()

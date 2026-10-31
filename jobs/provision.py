@@ -15,7 +15,7 @@ import io
 import json
 import re
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from databricks.sdk import WorkspaceClient
 from databricks.sdk.service.workspace import ExportFormat, ImportFormat
@@ -47,7 +47,7 @@ def main() -> None:
         "cost_center": args.cost_center,
         "env": args.env,
         "provisioned_by": "apps-monitoring",
-        "provisioned_at": datetime.now(timezone.utc).isoformat(),
+        "provisioned_at": datetime.now(UTC).isoformat(),
     }
 
     # 1) template files → /Workspace/Shared/monitor-apps/<name>

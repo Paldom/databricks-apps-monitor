@@ -15,7 +15,7 @@ import json
 import math
 import re
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import httpx
 from databricks.sdk import WorkspaceClient
@@ -214,7 +214,7 @@ def experiment_of(w: WorkspaceClient, app_name: str) -> str | None:
 
 
 def sample_traces(w: WorkspaceClient, experiment_id: str, hours: int, n: int) -> list[dict]:
-    since_ms = int((datetime.now(timezone.utc) - timedelta(hours=hours)).timestamp() * 1000)
+    since_ms = int((datetime.now(UTC) - timedelta(hours=hours)).timestamp() * 1000)
     r = httpx.post(
         f"{w.config.host}/api/3.0/mlflow/traces/search",
         json={
@@ -417,7 +417,7 @@ def main() -> None:
         ).collect()
     }
 
-    ts = datetime.now(timezone.utc)
+    ts = datetime.now(UTC)
     rows, alerts = [], []
     pii_evaluated, policy_evaluated = set(), set()
     for a in w.apps.list():

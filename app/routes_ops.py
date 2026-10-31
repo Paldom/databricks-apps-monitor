@@ -2,7 +2,7 @@
 
 import asyncio
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Literal
 from uuid import uuid4
 
@@ -19,7 +19,7 @@ router = APIRouter()
 class MuteSpec(BaseModel):
     app: str = Field(min_length=1, max_length=128)
     rule: str = Field(default="*", min_length=1, max_length=128)
-    starts_at: AwareDatetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    starts_at: AwareDatetime = Field(default_factory=lambda: datetime.now(UTC))
     ends_at: AwareDatetime
     reason: str = Field(min_length=1, max_length=1000)
 
@@ -64,7 +64,7 @@ async def list_mutes() -> dict:
 @router.post("/api/actions/mute")
 async def mute(body: MuteSpec, actor: str = Depends(require_admin)) -> dict:
     ws, ident = await workspace(), uuid4().hex
-    if body.ends_at <= datetime.now(timezone.utc):
+    if body.ends_at <= datetime.now(UTC):
         raise HTTPException(422, "ends_at must be in the future")
     params = body.model_dump(mode="json")
     await q.run_dml(q.MUTE_INSERT, ws=ws, id=ident, actor=actor, **params)

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import argparse
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from databricks.sdk import WorkspaceClient
 from databricks.sdk.service.apps import AppAccessControlRequest, AppPermissionLevel
@@ -209,7 +209,7 @@ def main() -> None:
 
     w = WorkspaceClient()
     spark = SparkSession.builder.getOrCreate()
-    ts = datetime.now(timezone.utc)
+    ts = datetime.now(UTC)
     args.snapshot_ts = ts
     destination(args, w)
 

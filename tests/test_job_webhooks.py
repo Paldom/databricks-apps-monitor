@@ -1,14 +1,14 @@
 """Job webhook delivery: pure acknowledgement rules and scheduler cadence."""
 
 import asyncio
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from test_service_correctness import service as service
 
-NOW = datetime(2026, 10, 26, tzinfo=timezone.utc)
+NOW = datetime(2026, 10, 26, tzinfo=UTC)
 
 
 def event(offset=1, **changes):
@@ -133,14 +133,14 @@ def test_boot_resets_cursor_before_starting_scheduler(service, monkeypatch):
     monkeypatch.setattr(main, "_job_alert_cursor", NOW)
     main.q.run = AsyncMock(return_value=[])
     monkeypatch.setattr(main, "scheduler", AsyncMock())
-    before = datetime.now(timezone.utc)
+    before = datetime.now(UTC)
 
     async def boot():
         async with main.lifespan(main.app):
             await asyncio.sleep(0)
 
     asyncio.run(boot())
-    assert before <= main._job_alert_cursor <= datetime.now(timezone.utc)
+    assert before <= main._job_alert_cursor <= datetime.now(UTC)
 
 
 def test_all_statement_chunks_are_read_and_truncation_is_rejected(service):

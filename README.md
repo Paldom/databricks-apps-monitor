@@ -4,7 +4,7 @@
 _Is it up? Is it slow? What failed? What does it
 cost — per app, per team, per user? Is the code production-ready?_
 
-[![CI](https://github.com/Paldom/databricks-apps-monitor/actions/workflows/ci.yml/badge.svg)](https://github.com/Paldom/databricks-apps-monitor/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE) ![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)
+[![CI](https://github.com/Paldom/databricks-apps-monitor/actions/workflows/ci.yml/badge.svg)](https://github.com/Paldom/databricks-apps-monitor/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE) ![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)
 
 <!-- for an inline player, drag apps-monitor-tour.mp4 into the web editor and use that URL -->
 

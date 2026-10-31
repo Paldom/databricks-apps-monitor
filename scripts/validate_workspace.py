@@ -16,7 +16,7 @@ import random
 import re
 import time
 from collections import Counter, defaultdict
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from urllib.error import HTTPError
 from urllib.parse import urlencode, urlsplit
@@ -52,7 +52,7 @@ JOB_GOLD = "inventory_scan"  # gold_views is a task of this bundle job.
 
 
 def utcnow():
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def validate_run_id(run_id):
@@ -640,7 +640,7 @@ def aggregate_expectations(rows, period):
     groups = defaultdict(list)
     for row in rows:
         stamp = datetime.fromisoformat(row["time"].replace("Z", "+00:00"))
-        stamp = stamp.replace(tzinfo=stamp.tzinfo or timezone.utc)
+        stamp = stamp.replace(tzinfo=stamp.tzinfo or UTC)
         bucket = (
             stamp.date().isoformat()
             if period == "date"
@@ -664,7 +664,7 @@ def aggregate_actual(rows, period):
         bucket = row[period]
         if period == "hour":
             stamp = datetime.fromisoformat(bucket.replace("Z", "+00:00"))
-            bucket = stamp.replace(tzinfo=stamp.tzinfo or timezone.utc).isoformat()
+            bucket = stamp.replace(tzinfo=stamp.tzinfo or UTC).isoformat()
         key = f"{bucket}/{row['traffic_kind']}"
         if key in result:
             raise ValueError(f"duplicate aggregate key: {key}")
@@ -1347,7 +1347,7 @@ def exercise_operations(client, args, report):
         save_report(args.report, report)
         try:
             if muted:
-                ends = datetime.now(timezone.utc) + timedelta(seconds=3 * timeout + 600)
+                ends = datetime.now(UTC) + timedelta(seconds=3 * timeout + 600)
                 mute_id = client.api(
                     "/api/actions/mute",
                     method="POST",
@@ -1501,7 +1501,7 @@ def main(argv=None):
     else:
         if args.report.exists():
             raise ValueError("report already exists; use --phase verify or a new report and run-id")
-        run_id = args.run_id or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        run_id = args.run_id or datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
         plan = make_plan(run_id)
         report = {
             "version": 1,
@@ -1535,7 +1535,7 @@ def main(argv=None):
             drive(client, args, report)
         if args.phase != "drive":
             elapsed = (
-                datetime.now(timezone.utc).timestamp()
+                datetime.now(UTC).timestamp()
                 - datetime.fromisoformat(report["finished_at"]).timestamp()
             )
             sleep_progress(max(0, args.wait_minutes * 60 - elapsed), "Telemetry landing window")

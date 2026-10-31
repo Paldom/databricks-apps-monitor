@@ -11,7 +11,7 @@ import os
 import re
 import time
 from collections import defaultdict
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import auth
 import console_topology
@@ -56,10 +56,10 @@ def timestamp(value):
         if isinstance(value, datetime):
             dt = value
         elif isinstance(value, (int, float)):
-            dt = datetime.fromtimestamp(value, timezone.utc)
+            dt = datetime.fromtimestamp(value, UTC)
         else:
             dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
-        return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt.astimezone(timezone.utc)
+        return dt.replace(tzinfo=UTC) if dt.tzinfo is None else dt.astimezone(UTC)
     except (ValueError, TypeError, OverflowError, OSError):
         return None
 
@@ -793,7 +793,7 @@ def build_router(handlers):
                 )
             except Exception:  # noqa: BLE001 — inventory can still render before SDK identity is available
                 log.warning("console workspace identity unavailable")
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         plan = query_plan(state["workspace_id"], now)
         results = await asyncio.gather(
             *(optional_read(sql, params) for sql, params in plan.values())
@@ -813,7 +813,7 @@ def build_router(handlers):
                 # Warm probes are useful immediately even if warehouse startup takes 50s.
                 await asyncio.wait({pending}, timeout=0.05)
         state = live()
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         if cached is None:
             result = build_snapshot(
                 state, {}, dict.fromkeys(query_plan(state["workspace_id"], now), "missing"), now

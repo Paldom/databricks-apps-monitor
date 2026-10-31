@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -14,7 +14,7 @@ from fastapi.testclient import TestClient
 from test_service_correctness import ROOT, alert_spark, firing
 from test_service_correctness import service as service
 
-NOW = datetime(2026, 10, 29, 12, tzinfo=timezone.utc)
+NOW = datetime(2026, 10, 29, 12, tzinfo=UTC)
 
 
 def mute_window(**overrides):
@@ -57,7 +57,7 @@ def test_mutes_accept_sql_strings_naive_utc_and_offsets(service):
 
 def test_monitor_evaluates_persists_and_resolves_muted_alert(service, monkeypatch):
     a = service.alerts
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     a.set_mutes(
         [
             mute_window(
@@ -84,7 +84,7 @@ def test_monitor_evaluates_persists_and_resolves_muted_alert(service, monkeypatc
 def test_job_emitter_marks_firing_and_resolved_events_muted(service):
     spark = alert_spark({("app_down", "demo")})
     base = spark.sql.side_effect
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     def result(sql, **kwargs):
         frame = base(sql, **kwargs)
@@ -189,11 +189,11 @@ def test_sampler_ratio_unknown_stays_unknown(service):
 
 def test_night_start_tracks_timezone_and_dst(service):
     start = service.app_stopper.scheduled_start
-    assert start(datetime(2026, 10, 25, 0, tzinfo=timezone.utc), "Europe/Budapest") == datetime(
-        2026, 10, 25, 5, 5, tzinfo=timezone.utc
+    assert start(datetime(2026, 10, 25, 0, tzinfo=UTC), "Europe/Budapest") == datetime(
+        2026, 10, 25, 5, 5, tzinfo=UTC
     )
-    assert start(datetime(2026, 3, 29, 0, tzinfo=timezone.utc), "Europe/Budapest") == datetime(
-        2026, 3, 29, 4, 5, tzinfo=timezone.utc
+    assert start(datetime(2026, 3, 29, 0, tzinfo=UTC), "Europe/Budapest") == datetime(
+        2026, 3, 29, 4, 5, tzinfo=UTC
     )
 
 
@@ -237,7 +237,7 @@ def test_ops_routes_authorization_validation_parameters_and_audit(service):
             "app": "demo' OR true --",
             "rule": "*",
             "reason": "release",
-            "ends_at": (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat(),
+            "ends_at": (datetime.now(UTC) + timedelta(hours=1)).isoformat(),
         },
     )
     assert response.status_code == 200
@@ -350,7 +350,7 @@ def test_self_meter_resolves_only_known_cost_and_preserves_gaps(
     service, monkeypatch, warehouse_unavailable, monitor_usd
 ):
     spark = MagicMock()
-    yesterday = datetime.now(timezone.utc).date() - timedelta(days=1)
+    yesterday = datetime.now(UTC).date() - timedelta(days=1)
 
     def result(sql, **_kwargs):
         frame = MagicMock()
@@ -399,7 +399,7 @@ def test_self_meter_resolves_only_known_cost_and_preserves_gaps(
 
 
 def test_orphan_emitter_scopes_unknown_apps_and_resolves_recovery(service, monkeypatch):
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     end = now.replace(minute=now.minute // 15 * 15, second=0, microsecond=0)
     samples = [
         Row(name="bad", bucket=end - timedelta(minutes=15 * i), orphan_ratio=0.25)

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import math
+from datetime import UTC
 
 RULES = (
     ("slo_fast_burn", 60, 5, 14.4, "critical"),
@@ -71,7 +72,7 @@ def counts_sql(fq: str) -> str:
 
 def slo_alerts(rows: list[dict], end) -> list[dict]:
     # Alert keys are (rule, app); combine failing specs so one cannot resolve another.
-    from datetime import timedelta, timezone
+    from datetime import timedelta
 
     desired: dict[tuple[str, str], dict] = {}
     for row in rows:
@@ -95,7 +96,7 @@ def slo_alerts(rows: list[dict], end) -> list[dict]:
                     }
         updated = row["updated_at"]
         if updated.tzinfo is None:
-            updated = updated.replace(tzinfo=timezone.utc)
+            updated = updated.replace(tzinfo=UTC)
         if (
             row["app_state"] == "RUNNING"
             and not row["total_30"]
@@ -149,13 +150,12 @@ def main() -> None:
     end = spark.sql("SELECT window(now(), '5 minutes').start AS ts").collect()[0]["ts"]
     spark.sql(sli_sql(fq), args={"ws": ws, "end": end})
     rows = [r.asDict() for r in spark.sql(counts_sql(fq), args={"ws": ws, "end": end}).collect()]
-    from datetime import timezone
 
     emit_alerts(
         spark,
         args.catalog,
         args.schema,
-        slo_alerts(rows, end.replace(tzinfo=timezone.utc)),
+        slo_alerts(rows, end.replace(tzinfo=UTC)),
         owned_rules=OWNED_RULES,
         unknown_keys=unknown_slo_keys(rows),
     )

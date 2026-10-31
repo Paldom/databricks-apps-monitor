@@ -13,7 +13,7 @@ The monitor and currently-deploying apps are never touched. Every action → ale
 from __future__ import annotations
 
 import argparse
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from databricks.sdk import WorkspaceClient
@@ -41,7 +41,7 @@ def scheduled_start(now: datetime, tz: str) -> datetime:
     if start <= local:
         start += timedelta(days=1)
     # The hourly job runs at minute 05 UTC, including half-hour timezone offsets.
-    start = start.astimezone(timezone.utc)
+    start = start.astimezone(UTC)
     tick = start.replace(minute=5)
     return tick if tick >= start else tick + timedelta(hours=1)
 
@@ -161,7 +161,7 @@ def main() -> None:
     }
 
     hour_local = datetime.now(ZoneInfo(args.tz)).hour
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     wake = {
         r["app"]
         for r in spark.sql(
@@ -207,7 +207,7 @@ def main() -> None:
                 # uninstrumented apps, outages and permission gaps all look identical
                 print(f"{a.name}: idle mode but no request evidence — skipping (fail-safe)")
                 continue
-            idle_h = (now - seen.replace(tzinfo=timezone.utc)).total_seconds() / 3600
+            idle_h = (now - seen.replace(tzinfo=UTC)).total_seconds() / 3600
             if idle_h >= c["idle_hours"]:
                 reason = f"idle {idle_h:.0f}h ≥ {c['idle_hours']}h (no real requests)"
         elif c["auto_stop"] == "budget" and c["budget"] > 0:

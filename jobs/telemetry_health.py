@@ -1,6 +1,6 @@
 """Telemetry quality view and conservative, durable orphan-alert observations."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from math import isfinite
 
 
@@ -23,7 +23,7 @@ def sustained_orphans(samples: list[dict], now: datetime) -> bool | None:
     for sample in samples:
         bucket = sample["bucket"]
         if bucket.tzinfo is None:
-            bucket = bucket.replace(tzinfo=timezone.utc)
+            bucket = bucket.replace(tzinfo=UTC)
         observed[bucket] = sample["orphan_ratio"]
     end = now.replace(minute=now.minute // 15 * 15, second=0, microsecond=0)
     values = [observed.get(end - timedelta(minutes=15 * i)) for i in range(25)]
@@ -111,7 +111,7 @@ def check_telemetry(spark, fq: str, ws: str, catalog: str, schema: str) -> None:
     by_app: dict[str, list] = {}
     for r in samples:
         by_app.setdefault(r["name"], []).append(r.asDict())
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     alerts, evaluated = [], set()
     for name, observations in by_app.items():
         condition = sustained_orphans(observations, now)

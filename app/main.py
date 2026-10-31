@@ -17,7 +17,7 @@ import os
 import time
 from collections import deque
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
@@ -86,7 +86,7 @@ def _workspace_id() -> int:
 
 _last_fleet_refresh = 0.0
 _last_probe_ts = 0.0
-_job_alert_cursor = datetime.now(timezone.utc)
+_job_alert_cursor = datetime.now(UTC)
 _last_job_alert_poll = time.monotonic()
 
 
@@ -315,7 +315,7 @@ async def run_journeys() -> None:
                         app=name,
                         journey=jn["name"],
                         step=step["step"],
-                        ts=datetime.now(timezone.utc).isoformat(),
+                        ts=datetime.now(UTC).isoformat(),
                         step_name=step["name"],
                         ok=str(step["ok"]).lower(),
                         code=step["code"],
@@ -341,7 +341,7 @@ async def _persist_alerts(events: list[dict]) -> None:
         try:
             await q.run_dml(
                 q.INSERT_ALERT,
-                ts=datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
+                ts=datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S"),
                 rule=e["rule"],
                 app=e["app"],
                 severity=e["severity"],
@@ -450,7 +450,7 @@ def _status(info: dict, s: dict) -> str:
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     global _job_alert_cursor, _last_job_alert_poll
-    _job_alert_cursor = datetime.now(timezone.utc)
+    _job_alert_cursor = datetime.now(UTC)
     _last_job_alert_poll = time.monotonic()
     try:
         ws = str(await asyncio.to_thread(_workspace_id))
@@ -494,7 +494,7 @@ async def api_fleet() -> dict:
     up = [a["uptime_24h"] for a in apps_payload if a["uptime_24h"] is not None]
     err = [a["error_rate_1h"] for a in apps_payload if a["error_rate_1h"] is not None]
     return {
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": datetime.now(UTC).isoformat(),
         "probe_interval": PROBE_INTERVAL,
         "genie_url": GENIE_EMBED_URL,
         "workspace": WORKSPACE_NAME,

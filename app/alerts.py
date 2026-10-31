@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import httpx
 from mutes import is_muted
@@ -44,7 +44,7 @@ def evaluate(
     expected_journeys: tuple = (),
 ) -> list[dict]:
     """Return state-transition events; keeps the active-alert set internally."""
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     desired: dict[str, dict] = {}
 
     def want(rule: str, app: str, severity: str, message: str, value: float | None) -> None:
@@ -97,7 +97,7 @@ def evaluate(
             )
 
     decisions = vantage_decisions(
-        vantage_rows or [], datetime.now(timezone.utc).timestamp(), expected=expected_journeys
+        vantage_rows or [], datetime.now(UTC).timestamp(), expected=expected_journeys
     )
     for name, failed in decisions.items():
         if failed:
@@ -145,7 +145,7 @@ def job_webhook_batch(
     latest = cursor
     for row in rows:
         ts = datetime.fromisoformat(str(row["ts"]).replace("Z", "+00:00"))
-        ts = ts.replace(tzinfo=ts.tzinfo or timezone.utc)
+        ts = ts.replace(tzinfo=ts.tzinfo or UTC)
         if ts <= cursor or row.get("source") != "job":
             continue
         latest = max(latest, ts)

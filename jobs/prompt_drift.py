@@ -6,7 +6,7 @@ import argparse
 import json
 import math
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 _jobs_dir = next((a.split("=", 1)[1] for a in sys.argv if a.startswith("--jobs-dir=")), "")
 if _jobs_dir:
@@ -227,7 +227,7 @@ def main():
         args.embedding_endpoint,
         args.samples,
         args.threshold,
-        datetime.now(timezone.utc),
+        datetime.now(UTC),
     )
 
 

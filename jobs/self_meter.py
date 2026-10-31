@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import math
+from datetime import UTC
 
 STORAGE_TABLES = (
     "otel_spans",
@@ -109,9 +110,9 @@ def model_sql(fq: str, prices: bool) -> str:
 
 
 def merge_cost(spark, fq: str, ws: str, rows: list[dict]) -> None:
-    from datetime import datetime, timezone
+    from datetime import datetime
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     full = [
         {
             **r,
@@ -132,7 +133,7 @@ def merge_cost(spark, fq: str, ws: str, rows: list[dict]) -> None:
 
 
 def main() -> None:
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timedelta
 
     from databricks.sdk import WorkspaceClient
     from ops_tables import ensure_ops_tables
@@ -160,7 +161,7 @@ def main() -> None:
     sp = monitor.service_principal_client_id
     if not sp:
         raise ValueError("monitor service principal is unavailable")
-    today = datetime.now(timezone.utc).date()
+    today = datetime.now(UTC).date()
     results = []
     sources = (
         (

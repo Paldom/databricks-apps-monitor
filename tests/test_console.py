@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 from test_service_correctness import ROOT
 from test_service_correctness import service as service
 
-NOW = datetime(2026, 10, 30, 9, 30, tzinfo=timezone.utc)
+NOW = datetime(2026, 10, 30, 9, 30, tzinfo=UTC)
 
 
 def live(**overrides):

@@ -1,6 +1,6 @@
 """Notification mute matching, shared with job emitters; no runtime dependencies."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from fnmatch import fnmatchcase
 
 
@@ -8,11 +8,7 @@ def utc(value: datetime | str) -> datetime:
     value = (
         datetime.fromisoformat(value.replace("Z", "+00:00")) if isinstance(value, str) else value
     )
-    return (
-        value.replace(tzinfo=timezone.utc)
-        if value.tzinfo is None
-        else value.astimezone(timezone.utc)
-    )
+    return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
 
 
 def is_muted(app: str, rule: str, mutes: list[dict], now: datetime) -> bool:

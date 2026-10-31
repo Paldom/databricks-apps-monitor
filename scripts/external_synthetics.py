@@ -15,7 +15,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
@@ -279,7 +279,7 @@ def sanitize_status(data, public_apps):
                 "bars": bars,
             }
         )
-    return {"generated_at": datetime.now(timezone.utc).isoformat(), "apps": apps}
+    return {"generated_at": datetime.now(UTC).isoformat(), "apps": apps}
 
 
 def main():
@@ -315,7 +315,7 @@ def main():
             raise ValueError("Journeys require unique app/name pairs and at least one step")
         defaults = config.get("defaults", {})
         run_id = str(uuid4())
-        ts = datetime.now(timezone.utc).isoformat()
+        ts = datetime.now(UTC).isoformat()
         headers = {
             **workspace.headers,
             "x-monitor-synthetic": "journey",

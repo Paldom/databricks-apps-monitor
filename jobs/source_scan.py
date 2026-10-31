@@ -21,7 +21,7 @@ import re
 import subprocess
 import sys
 import tempfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx
@@ -474,7 +474,7 @@ def emit_alerts(
             for rule, app in sorted(resolving_keys(open_keys, current, owned_rules, evaluated_apps))
             if (rule, app) not in (unknown_keys or set())
         ]
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         mutes = [
             r.asDict() if hasattr(r, "asDict") else dict(r)
             for r in spark.sql(
@@ -553,7 +553,7 @@ def main() -> None:
         else set()
     )
 
-    ts = datetime.now(timezone.utc)
+    ts = datetime.now(UTC)
     scan_rows, finding_rows = [], []
 
     for a in w.apps.list():

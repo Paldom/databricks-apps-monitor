@@ -23,7 +23,7 @@ import json
 import subprocess
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import uuid4
 
 from databricks.sdk import WorkspaceClient
@@ -112,7 +112,7 @@ def main() -> None:
         print(f"browser install failed (expected on serverless): {e}")
 
     headers = w.config.authenticate()
-    ts = datetime.now(timezone.utc)
+    ts = datetime.now(UTC)
     stamp = ts.strftime("%Y%m%d-%H%M%S")
     rows = []
     for a in w.apps.list():

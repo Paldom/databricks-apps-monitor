@@ -9,7 +9,7 @@ description = "Golden-envelope OpenTelemetry middleware for Databricks Apps — 
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 authors = [{ name = "Domonkos Pal", email = "domonkos.pal@databricks.com" }]
 dependencies = [
   "opentelemetry-api>=1.25",
@@ -65,13 +65,13 @@ exclude_lines = [
 [tool.mypy]
 # strict gate covers the published package; app/ and jobs/ are Databricks serverless
 # deployment payloads (pyspark/databricks-sdk at runtime) and stay out of scope.
-python_version = "3.10"
+python_version = "3.11"
 strict = true
 warn_unused_ignores = true
 files = ["src"]
 
 [tool.ruff]
-target-version = "py310"
+target-version = "py311"
 line-length = 100
 required-version = "0.15.20"
 

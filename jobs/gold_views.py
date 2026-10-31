@@ -12,7 +12,7 @@
 from __future__ import annotations
 
 import argparse
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from databricks.sdk import WorkspaceClient
 from pyspark.sql import SparkSession
@@ -604,7 +604,7 @@ def main() -> None:
     if args.deployment_mode == "hub":
         hub_views(spark, args)
         return
-    ts = datetime.now(timezone.utc)
+    ts = datetime.now(UTC)
     apps = list(w.apps.list())
 
     spark.sql(CONFIG_DDL.format(fq=fq))

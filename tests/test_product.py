@@ -7,7 +7,7 @@ import json
 import sqlite3
 import sys
 from contextlib import closing
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -61,7 +61,7 @@ def test_token_policy_boundaries(service, today, hour, budget, expected):
 
 def test_policy_cache_handles_partial_rows_outages_and_expiry(service, monkeypatch):
     module = service.routes_product
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     module.q.run = AsyncMock(
         return_value=[
             {"name": "unset", "policy_updated_at": None, "throttle": None},

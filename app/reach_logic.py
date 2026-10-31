@@ -1,7 +1,7 @@
 """Network-free helpers for reach routes and synthetic alert evidence."""
 
 from collections import defaultdict, deque
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from time import monotonic
 
 
@@ -37,7 +37,7 @@ def epoch(value):
         return float(value)
     if isinstance(value, str):
         value = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    return value.replace(tzinfo=value.tzinfo or timezone.utc).timestamp()
+    return value.replace(tzinfo=value.tzinfo or UTC).timestamp()
 
 
 def vantage_decisions(rows, now, max_age=7200, expected=()):

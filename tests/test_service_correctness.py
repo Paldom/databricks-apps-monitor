@@ -7,7 +7,7 @@ import importlib.util
 import sqlite3
 import sys
 from contextlib import closing
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
@@ -89,7 +89,7 @@ def firing(rule="app_stopped", app="demo"):
         "severity": "warning",
         "message": "stopped",
         "value": 0,
-        "since": datetime(2020, 1, 1, tzinfo=timezone.utc),
+        "since": datetime(2020, 1, 1, tzinfo=UTC),
     }
 
 
@@ -120,7 +120,7 @@ def test_restart_waits_for_consecutive_probe_evidence(service):
 def test_journey_incident_requires_two_vantages_and_survives_missing_evidence(service):
     a = service.alerts
     fleet = {"demo": {"app_state": "RUNNING"}}
-    now = datetime.now(timezone.utc).timestamp()
+    now = datetime.now(UTC).timestamp()
     rows = [
         {
             "app": "demo",

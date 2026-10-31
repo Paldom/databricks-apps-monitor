@@ -12,7 +12,7 @@ import argparse
 import json
 import re
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import httpx
 from databricks.sdk import WorkspaceClient
@@ -155,7 +155,7 @@ def main() -> None:
         }
     )
 
-    ts = datetime.now(timezone.utc)
+    ts = datetime.now(UTC)
     rows = []
     for a in w.apps.list():
         if args.only_app and a.name != args.only_app:
